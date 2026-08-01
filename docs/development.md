@@ -68,6 +68,56 @@ complete.
 
 ---
 
+## Verifying against a real gateway
+
+```bash
+python scripts/verify_on_jython.py 81-GW1-1
+```
+
+The CPython suite proves the logic. It cannot prove the two things most likely
+to break on a gateway and invisible from CPython: that every module actually
+imports under **Jython 2.7**, and that `java.lang.management` behaves the way
+`stubs.py` says. This runs `src/` inside the container with the gateway's own
+interpreter (`lib/core/common/jython-ia-2.7.2.0.jar`) against a real
+`ThreadMXBean`, and asserts the contract.
+
+**It does not prove scope.** It starts a new JVM inside the container, so it
+reports that little JVM's half-dozen threads, not the gateway's. Whether the
+code runs in *Gateway* scope is a deployment question — answered by the
+Gateway Event Script at M4.
+
+Two flags it needs, both non-obvious:
+
+- `-Dpython.import.site=false` — outside the gateway's own configured
+  `python.home` the bundled jar has no `site` module on `sys.path` and dies
+  before running a line of our code.
+- The JVM is invoked with `-cp <jar> org.python.util.jython`; there is no
+  `jython` launcher script in the image.
+
+### What it found
+
+Both confirmed empirically on 8.1.11 **and** 8.3.8:
+
+| Check | Result |
+|---|---|
+| Every module imports under Jython 2.7.2 | pass |
+| `findDeadlockedThreads()` with no deadlock | returns `None`, **not** `[]` — as documented |
+| `deadlocked_count` maps that to | `0`, not `None` |
+| `getThreadInfo(ids, 0)` | works, no stack traces |
+| Sample cost | 4–5 ms warm (39 ms first call, JIT) |
+
+And one thing worth knowing:
+
+- **`Thread.State` crosses the boundary as `unicode`, not `str`.** Harmless —
+  under Python 2 `u'RUNNABLE'` compares and hashes equal to `'RUNNABLE'`, so
+  `snapshot.PoolCount`'s dict lookups behave identically. But it means
+  `isinstance(state, str)` is **False** on a gateway and **True** on CPython 3.
+  A test asserting that would pass here and fail there;
+  `test_states_cross_the_boundary_as_text_not_as_a_java_enum` deliberately
+  does not.
+
+---
+
 ## Adding a pool bucket
 
 1. Capture a dump: `python scripts/discover_threads.py <container>`.

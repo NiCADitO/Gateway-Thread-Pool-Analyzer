@@ -20,9 +20,9 @@ own tags.
 |---|---|---|
 | **M0** Thread-name discovery | **done** | Real thread names captured off three live gateways — 8.1.11, 8.1.48 and 8.3.8. The catalog is evidence-based, not guessed. |
 | **M1** Pure counting core | **done** | 49 tests, no gateway required. `other` is empty on all three real gateways. |
-| M2 Ignition adapter | next | `ThreadMXBean` read, printed from the script console. Writes nothing. |
-| M3 Tag provisioning | | ~69 tags exist under `[default]GatewayHealth/Threads/`. |
-| M4 Gateway timer | | Values move on a 10 s fixed-delay timer in Gateway scope. |
+| **M2** Ignition adapter | **done** | 69 tests. Runs under the gateway's real Jython 2.7.2 against a real `ThreadMXBean` on both 8.1.11 and 8.3.8. Writes nothing. |
+| M3 Tag provisioning | **needs one Designer step** | ~69 tags exist under `[default]GatewayHealth/Threads/`. |
+| M4 Gateway timer | **needs one Designer step** | Values move on a 10 s fixed-delay timer in Gateway scope. |
 | M5 History + trend | | Rows in `sqlt_data_*`, Power Chart renders. **The deliverable.** |
 | M6 Deploy harness | | One-command deploy; verified on 8.3. |
 
@@ -139,8 +139,20 @@ See [CLAUDE.md](CLAUDE.md) for the hard constraints and
 
 Based on [a forum post](https://forum.inductiveautomation.com/t/getting-threads-from-the-gateway/89447/13)
 that counts `webserver` threads via `ManagementFactory.getThreadMXBean()`. The
-idea is right; this rebuilds around it — `writeBlocking` instead of the
-deprecated `system.tag.write`, `getThreadInfo(ids, 0)` so stack traces aren't
-captured and discarded, a catalog instead of one hardcoded pool, and Gateway
-scope rather than a Perspective component reference that can't resolve in a
-gateway timer.
+idea is right; this rebuilds around it:
+
+- **`writeBlocking`** instead of the deprecated `system.tag.write`.
+- **A catalog** instead of one hardcoded pool.
+- **Gateway scope**, rather than a Perspective component reference
+  (`self.parent.parent`) that cannot resolve in a gateway timer at all — the
+  most likely cause of the timer trouble the poster reported.
+- **A `TIMED_WAITING` count that means what its tag name says.** In the posted
+  snippet the state check is nested inside the `startswith("webserver")`
+  branch, so the tag called `TIMED_WAITING` actually only counts *webserver*
+  threads in that state. Here every state is counted per pool and the totals
+  reconcile.
+
+One thing the post got right that's easy to assume otherwise: its
+`getThreadInfo(ids)` call is *already* the cheap form. The JavaDoc defines it
+as equivalent to `getThreadInfo(ids, 0)` — no stack traces. This code uses the
+explicit two-argument form only because it says so at the call site.

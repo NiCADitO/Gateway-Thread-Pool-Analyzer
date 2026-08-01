@@ -285,6 +285,11 @@ POOL_SPECS = [
             # unlike GC Thread# -- it IS ThreadMXBean-visible.
             matchers.exact("Monitor Deflation Thread"),
             matchers.prefix("Cleaner-"),  # 8.3.8 / Java 17
+            # A gateway's main thread is WrapperSimpleAppMain (see platform);
+            # a plain JVM's is 'main'. Present so running this code outside a
+            # gateway -- scripts/verify_on_gateway.py does exactly that --
+            # does not report a spurious unmatched thread.
+            matchers.exact("main"),
         ),
         "JIT compiler, reference handling and cleaners. The GC and VM "
         "matchers here never fire on a live sample -- ThreadMXBean does not "
