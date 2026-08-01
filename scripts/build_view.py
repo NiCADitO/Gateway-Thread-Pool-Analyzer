@@ -139,8 +139,38 @@ def find_chart(node):
     return None
 
 
+BLOCKED_CHART_NAME = "blockedChart"
+TABLE = "ia.display.table"
+
+
+def strip_generated(root):
+    """Remove anything a previous run of this script added.
+
+    Without this the script is not idempotent and the failure is visual
+    nonsense rather than an error: each run clones the chart again, so a
+    second run leaves three power charts stacked in the same coordinate
+    space, each squashing the others' plot area to nothing. Observed on 8.1
+    after running twice.
+
+    Generated nodes are identified by meta.name, which is why they get one.
+    Anything the Designer made is left alone.
+    """
+    kept = []
+    removed = 0
+    for child in root.get("children") or []:
+        name = (child.get("meta") or {}).get("name", "")
+        if name == BLOCKED_CHART_NAME or name.startswith("cap_") \
+                or name.startswith("val_"):
+            removed = removed + 1
+            continue
+        kept.append(child)
+    root["children"] = kept
+    return removed
+
+
 def build(view, provider, drv):
     root = view["root"]
+    strip_generated(root)
     chart = find_chart(root)
     if chart is None:
         raise SystemExit("no %s in this view -- add one in the Designer first"
@@ -200,7 +230,22 @@ def build(view, provider, drv):
     kids.insert(kids.index(chart) + 1, blocked)
 
     tiles, warning = build_tiles(root, "[default]GatewayHealth/Threads/")
-    return len(count_pens) + len(blocked_pens), tiles, warning
+
+    # Table below the charts, sized to the pool list.
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
+    from thread_monitor import taxonomy as _tax
+    pool_keys = _tax.spec_keys()
+    cells = build_table(root, "[default]GatewayHealth/Threads/", pool_keys)
+    if cells:
+        for child in root["children"]:
+            if child.get("type") == TABLE:
+                child["position"] = {
+                    "x": pos.get("x", 0), "y": blocked["position"]["y"]
+                    + blocked["position"]["height"] + 14,
+                    "width": width, "height": 40 + 28 * len(pool_keys)}
+
+    return len(count_pens) + len(blocked_pens), tiles, warning, cells
 
 
 LABEL = "ia.display.label"
@@ -330,6 +375,46 @@ def build_tiles(root, provider_root):
     return len(TILES), None
 
 
+def build_table(root, provider_root, pool_keys):
+    """Turn the Designer's stock table into a live per-pool state grid.
+
+    Perspective ships tables with city/country/population sample data, which
+    stays there until something replaces it.
+
+    TRIED AND REVERTED: binding each cell via a `props.data[<row>].<column>`
+    prop path. The file wrote correctly -- 12 rows, 60 bindings, right column
+    names -- and Perspective rendered the headers and NO ROWS, with no error
+    anywhere. Prop-path bindings into an array element are not a shape this
+    project ever verified, and it failed exactly the way CLAUDE.md #5 says an
+    unverified shape fails: silently, and not diagnosable from the file.
+
+    So this now only strips the stock city/country/population sample data and
+    leaves the table empty rather than lying. Making it live needs `props.data`
+    bound to a single DataSet -- most likely a DataSet-typed tag the sampler
+    writes each cycle, which would use only the tag binding already verified.
+    That is a change to the tag set, not to this script.
+    """
+    table = None
+    for child in root.get("children") or []:
+        if child.get("type") == TABLE:
+            table = child
+            break
+    if table is None:
+        return 0
+
+    props = dict(table.get("props") or {})
+    props["data"] = []
+    table["props"] = props
+
+    config = dict(table.get("propConfig") or {})
+    for existing in list(config.keys()):
+        if existing.startswith("props.data["):
+            del config[existing]
+    table["propConfig"] = config
+
+    return 0
+
+
 def find_parent(node, target):
     for child in node.get("children") or []:
         if child is target:
@@ -389,11 +474,13 @@ def main():
     view, remote = read_view(args.container, args.project, args.view)
     backup(args.container, remote)
 
-    pens, tiles, warning = build(view, args.provider, args.drv)
+    pens, tiles, warning, cells = build(view, args.provider, args.drv)
     write_view(args.container, remote, view)
 
-    print("%s/%s: %d pens across 2 panels, %d tiles, provider=%s drv=%s"
-          % (args.container, args.view, pens, tiles, args.provider, args.drv))
+    print("%s/%s: %d pens across 2 panels, %d tiles, %d table cells, "
+          "provider=%s drv=%s"
+          % (args.container, args.view, pens, tiles, cells, args.provider,
+             args.drv))
     if warning:
         print("  WARNING: %s" % (warning,))
     print("  original kept at %s.orig" % (remote,))
