@@ -90,8 +90,31 @@ Fixed **Delay**, not Fixed Rate: the next sample cannot start until the last
 finished, so a slow sample degrades resolution instead of stacking up.
 `entry.sample_and_write()` also carries its own reentrancy guard.
 
-**Still unverified on 8.1** — the 8.1 layout may still be the binary `data.bin`
-shape. Do not assume this transfers.
+### It does NOT transfer to 8.1, and the failure is silent
+
+Tested by generating the same resource on 8.1.11. The gateway **accepted** it:
+
+```
+I [g.IgnitionProjectManager]: Setting LastModification to "external" on
+  Gateway_Thread_Pool_Analyzer_and_Historizer/threadMonitor [ignition/timer]
+I [Project]: Restarting gateway scripts... project=...
+```
+
+It even recomputed `lastModificationSignature` from zeros to a real hash — so
+the resource was genuinely read and processed. And it **never executed**, not
+after the rescan and not after a full gateway restart. No error, anywhere.
+
+So `ignition/timer/` is an **8.3 change**; 8.1 keeps gateway event scripts in
+the older binary `event-scripts` type. My original inference was right for 8.1
+and wrong for 8.3, and each version had to be tested to find that out.
+
+**On 8.1 the timer must be created in the Designer.** A generated one there is
+inert while looking installed, which is worse than no timer at all. The
+inert resource was removed from GW1 rather than left as a trap.
+
+This is a one-time cost per gateway: the body is three lines and never
+changes, because all the real code lives in the project library — which *is*
+pushable on 8.1.
 
 ---
 

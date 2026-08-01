@@ -180,6 +180,89 @@ def check_project(container, project):
                " ".join(listing.stdout.split()) or "(none)"))
 
 
+# ---------------------------------------------------------------------------
+# Gateway timer event script
+# ---------------------------------------------------------------------------
+#
+# Shape taken verbatim from a timer script the DESIGNER wrote on 8.3.8, not
+# invented -- see ignition-project/NOTES.md. Confirmed by editing `delay` on
+# disk from 1000 to 10000 and watching the gateway honour it.
+#
+# The body is tab-indented on purpose: that is what the Designer emits, and
+# mixing tabs and spaces in a Jython file is a syntax error rather than a
+# style opinion.
+
+TIMER_NAME = "threadMonitor"
+
+TIMER_BODY = (
+    "def handleTimerEvent():\n"
+    "\tfrom ignition_adapter import entry\n"
+    "\tentry.sample_and_write()\n"
+)
+
+
+def timer_resource(delay_ms):
+    return {
+        "scope": "G",
+        "version": 1,
+        "restricted": False,
+        "overridable": True,
+        "files": ["handleTimerEvent.py"],
+        "attributes": {
+            "sharedThread": True,
+            "delay": delay_ms,
+            # Fixed delay, never fixed rate: the next sample cannot start
+            # until the last finished, so a slow sample degrades resolution
+            # instead of stacking samples on top of each other.
+            "fixedDelay": True,
+            "enabled": True,
+            "lastModification": {"actor": "external",
+                                 "timestamp": "2026-07-31T21:00:00Z"},
+            "lastModificationSignature": "0" * 64,
+        },
+    }
+
+
+def push_timer(container, project, delay_ms):
+    """Create/replace the gateway timer event script. 8.3 ONLY.
+
+    **This does not work on 8.1 and the failure is silent.** Tested on 8.1.11:
+    the gateway ingested the resource, logged
+    `Setting LastModification to "external" on .../threadMonitor
+    [ignition/timer]`, and even recomputed its signature -- and then never
+    executed it, not across a project rescan and not across a full gateway
+    restart. 8.1 stores gateway event scripts as the older binary
+    `event-scripts` type; `ignition/timer/` is an 8.3 change. An 8.1 resource
+    pushed this way is inert, and looks installed.
+
+    So on 8.1 the timer must be created once in the Designer. That is a
+    one-time cost -- the body is three lines and never changes, because all
+    the real code lives in the project library, which IS pushable on 8.1.
+    """
+    remote = "%s/ignition/timer/%s" % (_project_path(project), TIMER_NAME)
+    subprocess.check_call(["docker", "exec", container, "sh", "-c",
+                           "mkdir -p '%s'" % (remote,)])
+
+    payloads = [
+        ("handleTimerEvent.py", TIMER_BODY),
+        ("resource.json", json.dumps(timer_resource(delay_ms), indent=2)
+         + "\n"),
+    ]
+    for filename, content in payloads:
+        proc = subprocess.Popen(
+            ["docker", "exec", "-i", container, "sh", "-c",
+             "cat > '%s/%s'" % (remote, filename)],
+            stdin=subprocess.PIPE)
+        proc.communicate(content.encode("utf-8"))
+        if proc.returncode != 0:
+            raise SystemExit("failed writing %s" % (filename,))
+
+    print("Pushed timer '%s' at %dms (fixed delay) to %s:%s"
+          % (TIMER_NAME, delay_ms, container, project))
+    print("  verify with: docker logs %s 2>&1 | grep GatewayThreadMonitor"
+          % (container,))
+
+
 def restart_and_wait(container, timeout=300):
     """Restart the gateway and block until it reports healthy.
 
@@ -260,6 +343,13 @@ def main():
                              "gateway reloads them at boot. Verified: an "
                              "external edit on 8.3 went unnoticed for 5 "
                              "minutes and loaded immediately on restart.")
+    parser.add_argument("--with-timer", action="store_true",
+                        help="also create the gateway timer event script. "
+                             "8.3 ONLY -- on 8.1 the resource is ingested "
+                             "and then never executed, so it looks installed "
+                             "and is inert. Create it in the Designer there.")
+    parser.add_argument("--delay", type=int, default=10000,
+                        help="timer interval in ms (default 10000)")
     args = parser.parse_args()
 
     if build() == 0:
@@ -267,6 +357,8 @@ def main():
         return 1
     if args.deploy:
         before = deploy(args.container, args.project)
+        if args.with_timer:
+            push_timer(args.container, args.project, args.delay)
         if args.restart:
             restart_and_wait(args.container)
         else:
