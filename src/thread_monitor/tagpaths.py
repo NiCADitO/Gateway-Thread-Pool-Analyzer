@@ -111,3 +111,55 @@ def all_paths():
     for name in DIAGNOSTIC_TAGS:
         paths.append(diagnostic_tag(name))
     return paths
+
+
+# Ignition dataType names. Int4 is the default but is stated anyway, because
+# a tag that silently comes out the wrong type is not diagnosable from the
+# trend. See ignition_adapter/stubs.py for the full legal list.
+DATATYPE_INT = "Int4"
+DATATYPE_STRING = "String"
+DATATYPE_DATETIME = "DateTime"
+
+# Diagnostic tags are NOT all integers, unlike everything else.
+DIAGNOSTIC_TYPES = {
+    SAMPLE_DURATION_MS: DATATYPE_INT,
+    LAST_SAMPLE_TIME: DATATYPE_DATETIME,
+    LAST_ERROR: DATATYPE_STRING,
+    API_ROUTE: DATATYPE_STRING,
+    UNMATCHED_NAMES: DATATYPE_STRING,
+}
+
+
+def datatype_for(path):
+    """The Ignition dataType this path should be created with."""
+    for name in DIAGNOSTIC_TAGS:
+        if path == diagnostic_tag(name):
+            return DIAGNOSTIC_TYPES[name]
+    return DATATYPE_INT
+
+
+def historized_paths():
+    """The paths that get tag history enabled. Deliberately NOT all of them.
+
+    The 60 pool members plus the 4 gateway counters -- 64 of the 69 -- and
+    none of the 5 Diagnostics tags.
+
+    Excluding Diagnostics is not tidiness, it is the difference between
+    on-change historization working and not. Measured on the live 8.1
+    gateway: the real metrics change about 2% of samples, so on-change stores
+    ~11,100 rows/day. But LastSampleTime is a timestamp, so it changes on
+    EVERY sample by definition, and SampleDurationMs jitters 4-5ms so it
+    changes on roughly half. Historizing those two alone would add ~12,960
+    rows/day -- 54% of all rows, carrying nothing trendable -- and would
+    degrade on-change back into fixed-periodic for no benefit.
+
+    They remain live tags. They are readable in the tag browser and in a
+    Perspective binding; they just are not written to the historian.
+    """
+    paths = []
+    for key in taxonomy.spec_keys():
+        for member in UDT_MEMBERS:
+            paths.append(pool_member(key, member))
+    for name in GATEWAY_TAGS:
+        paths.append(gateway_tag(name))
+    return paths

@@ -10,7 +10,9 @@ Jython 2.7: no f-strings, no comprehensions.
 """
 import sys
 
+from ignition_adapter import config
 from ignition_adapter import jvm
+from ignition_adapter import provisioning
 from ignition_adapter import tags
 from thread_monitor import snapshot
 from thread_monitor import tagpaths
@@ -34,6 +36,10 @@ _last = [None]
 
 # Samples taken since this module was loaded. Drives the heartbeat below.
 _count = [0]
+
+# Whether the one-shot auto-provision has been attempted since this module
+# was loaded. Latches on the ATTEMPT, not on success -- see _maybe_provision.
+_provision_attempted = [False]
 
 # Last thing logged, so a persistent fault is not re-logged every sample.
 # An unprovisioned tag tree fails identically forever; at a 10s timer that is
@@ -77,6 +83,31 @@ def _log(level, message):
             logger.info(message)
     except:  # noqa: E722 -- bare: see CLAUDE.md #3.
         pass
+
+
+def _maybe_provision():
+    """Provision once per module load, if config asks for it.
+
+    LATCHES ON THE ATTEMPT, not on success. That is the whole safety
+    property: a gateway where provisioning permanently fails must not rewrite
+    tag configuration every 10 seconds forever. One attempt, one log line,
+    then never again until the module is reloaded.
+
+    A retry that succeeds on the second try is not worth an unbounded stream
+    of config writes aimed at the gateway being measured. If the first attempt
+    fails, the log says why and a human redeploys.
+    """
+    if _provision_attempted[0]:
+        return
+    if not config.PROVISION_ON_START:
+        return
+
+    _provision_attempted[0] = True
+    result = provisioning.provision(config.HISTORY_PROVIDER)
+    if result.ok():
+        _log("info", "auto-provision: " + result.summary())
+    else:
+        _log("warn", "auto-provision: " + result.summary())
 
 
 def _fault_key(result):
@@ -157,6 +188,7 @@ def sample_and_write():
     _sampling[0] = True
     try:
         try:
+            _maybe_provision()
             snap = jvm.read()
             _last[0] = snap
             result = tags.write_snapshot(snap)
@@ -181,6 +213,32 @@ def last_report():
     if _last[0] is None:
         return "no sample taken yet"
     return snapshot.format_report(_last[0])
+
+
+def provision(history_provider):
+    """Create the tags. Run this ONCE per gateway, then never again.
+
+    From a Gateway-scope script:
+
+        from ignition_adapter import entry
+        print entry.provision("PostgresDBConnection")
+
+    The argument is the tag history provider name from the gateway's Tag
+    History Providers page. It is required -- see provisioning.provision.
+
+    Deliberately NOT called automatically by the timer. Provisioning writes
+    tag configuration, and a timer that provisions on failure turns a
+    persistent misconfiguration into an unbounded stream of config writes
+    against the very gateway being measured.
+
+    Do not trust this function's own report alone. The real proof is the next
+    timer sample: it logs `69 tags written` instead of `69 of 69 writes
+    rejected`, and that signal comes from a code path that was already
+    working before any of this existed.
+    """
+    result = provisioning.provision(history_provider)
+    _log("info", "provision: " + result.summary())
+    return result.summary()
 
 
 def diagnose():

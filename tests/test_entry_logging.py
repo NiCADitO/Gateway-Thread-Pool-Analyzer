@@ -129,3 +129,73 @@ def test_fault_key_distinguishes_the_states_that_matter():
     assert entry._fault_key(make_result(bad=5)) != \
         entry._fault_key(make_result(bad=69))
     assert entry._fault_key(make_result(error="x")).startswith("error:")
+
+
+# --- one-shot auto-provisioning -------------------------------------------
+
+def test_auto_provision_is_off_by_default():
+    from ignition_adapter import config
+    assert config.PROVISION_ON_START is False
+    assert config.HISTORY_PROVIDER == ""
+
+
+def test_auto_provision_latches_after_one_attempt_even_on_failure():
+    """The safety property. A permanently-failing provision must not retry.
+
+    Without the latch, a gateway that cannot be provisioned would rewrite tag
+    configuration every 10 seconds forever -- an unbounded stream of config
+    writes aimed at the very gateway being measured.
+    """
+    from ignition_adapter import config, provisioning
+
+    calls = []
+
+    def counting_provision(provider, tag_system=None):
+        calls.append(provider)
+        result = provisioning.ProvisionResult()
+        result.error = "deliberately broken"
+        return result
+
+    original_flag = config.PROVISION_ON_START
+    original_provider = config.HISTORY_PROVIDER
+    original_provision = provisioning.provision
+    recorder = Recorder()
+    recorder.install()
+    entry._provision_attempted[0] = False
+    try:
+        config.PROVISION_ON_START = True
+        config.HISTORY_PROVIDER = "SomeProvider"
+        provisioning.provision = counting_provision
+        for _ in range(25):
+            entry._maybe_provision()
+    finally:
+        provisioning.provision = original_provision
+        config.PROVISION_ON_START = original_flag
+        config.HISTORY_PROVIDER = original_provider
+        entry._provision_attempted[0] = False
+        recorder.restore()
+
+    assert len(calls) == 1, calls
+    assert len(recorder.lines) == 1
+    assert recorder.lines[0][0] == "warn"
+
+
+def test_auto_provision_does_nothing_when_disabled():
+    from ignition_adapter import config, provisioning
+
+    calls = []
+
+    def counting_provision(provider, tag_system=None):
+        calls.append(provider)
+        return provisioning.ProvisionResult()
+
+    original = provisioning.provision
+    entry._provision_attempted[0] = False
+    try:
+        provisioning.provision = counting_provision
+        assert config.PROVISION_ON_START is False
+        entry._maybe_provision()
+    finally:
+        provisioning.provision = original
+        entry._provision_attempted[0] = False
+    assert calls == []

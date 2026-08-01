@@ -81,19 +81,105 @@ system.tag.writeBlocking(paths, values)
     QualityCode in the result list while the call itself succeeds. Silent
     unless the result is inspected, which tags.py does.
 
-    Replaces system.tag.write, deprecated in 8.0.
-
-    TODO(human): confirm whether 8.3 still accepts the 2-arg form. The 8.1
-    docs also show writeBlocking(paths, values, timeout). Not used here.
+    Replaces system.tag.write, deprecated in 8.0. CONFIRMED by reflection on
+    both gateways: the 2-arg form is still valid on 8.3.8 (the third arg is an
+    optional timeout, default 45000 ms). Note 8.3 REMOVED read/readAll/write/
+    writeAll/writeSynchronous/writeAllSynchronous entirely -- writeBlocking is
+    the only portable route, which is what this project already uses.
 
 system.tag.configure(basePath, tags, collisionPolicy)
-    -> list of QualityCode.
+    -> java.util.List of QualityCode, one per tag created or edited.
 
-    collisionPolicy: 'a' abort, 'o' overwrite, 'm' merge, 'd' delete-and-replace
-    tags: list of dicts matching Ignition's tag JSON export shape.
+    Signature read by Jython reflection inside BOTH containers, off
+    AbstractTagUtilities: @KeywordArgs(names={"basePath","tags",
+    "collisionPolicy"}, types={String, Object, String}). Byte-for-byte
+    identical on 8.1.11 and 8.3.8.
 
-    TODO(human): confirm signature and collision-policy letters on 8.3 before
-    M3 provisioning runs against it. Verified on neither gateway yet.
+    collisionPolicy is matched CASE-INSENSITIVELY ON THE FIRST CHARACTER
+    against the enum names, so the legal letters are exactly:
+
+        'a'  Abort
+        'o'  Overwrite       <- the default when the arg is omitted
+        'i'  Ignore
+        'm'  MergeOverwrite
+        'r'  Rename
+
+    'd' is NOT a collision policy. Passing it throws
+    java.lang.IllegalArgumentException; passing "" throws
+    StringIndexOutOfBoundsException. An earlier version of this file
+    documented "'d' delete-and-replace", which was wrong and would have
+    thrown on a customer's gateway -- exactly the failure mode this inventory
+    exists to prevent.
+
+    tags: list of dicts. Nesting is under the key "tags" (a list).
+
+    *** tagType DOES NOT VALIDATE. ***
+    TagObjectType.fromString() returns Unknown for an unrecognised string
+    rather than throwing. "UDTType", "Memory" or "atomictag " all silently
+    become Unknown instead of failing. The legal names are Unknown, Property,
+    Node, Folder, AtomicTag, UdtInstance, UdtType, TagModel, Provider (plus
+    legacy aliases udt_def, udt_inst, scalar, standard). Only ever pass a
+    constant from provisioning.py -- never a computed string.
+
+    dataType (identical on both): Int1 Int2 Int4 Int8 Float4 Float8 Boolean
+    String DateTime Text and the *Array variants, ByteArray, DataSet,
+    Document. Defaults to Int4.
+
+    8.3-ONLY memory-tag properties -- do NOT send these to an 8.1 gateway:
+    defaultValue, valuePersistence.
+
+system.tag.getConfiguration(basePath, recursive)
+    -> list of dicts describing the tags at basePath.
+
+    TODO(human): the exact SHAPE of the returned objects is not confirmed on
+    either gateway -- whether values are plain dicts, or objects needing an
+    accessor, and whether history properties come back at all when they are
+    inherited rather than overridden. 8.3 also adds a third keyword arg
+    `overridesOnly`. provisioning.py therefore does NOT rely on reading
+    configuration back to decide success; see its module docstring.
+
+===========================================================================
+Tag history properties -- read out of TagHistoryProps in BOTH gateways' jars
+===========================================================================
+
+8.1.11 has exactly these 13. 8.3.8 has the same 13 plus `includeMetadata`
+(left unset here so one payload works on both).
+
+    historyEnabled              Boolean, default False
+    historyProvider             String,  default ""   <- must be set explicitly
+    sampleMode                  OnChange | Periodic | TagGroup
+    historySampleRate           Integer
+    historySampleRateUnits      TimeUnits
+    historicalDeadband          Float,   default 0.0
+    historicalDeadbandMode      Absolute | Percent
+    historicalDeadbandStyle     Auto | Analog_Compressed | Discrete
+    historyTagGroup             String
+    historyMaxAge               Integer, default 0 (= disabled)
+    historyMaxAgeUnits          TimeUnits
+    historyTimeDeadband         Integer, default 1
+    historyTimeDeadbandUnits    TimeUnits
+
+    TimeUnits: MS SEC MIN HOUR DAY WEEK MONTH YEAR
+
+    *** THE NAMING TRAPS, all confirmed against the jars: ***
+    - It is `historySampleRate`, NOT `historicalSampleRate`.
+    - But the deadbands ARE `historical*`: historicalDeadband,
+      historicalDeadbandMode, historicalDeadbandStyle.
+    - There is NO key `maxTimeBetweenSamples`. The Designer field
+      "Max Time Between Samples" is `historyMaxAge` (+ Units), and
+      "Min Time Between Samples" is `historyTimeDeadband` (+ Units).
+    - The Designer dropdown labelled "Analog" is the constant
+      `Analog_Compressed`, not "Analog".
+
+    A wrong key here is silently DROPPED -- no error, no bad QualityCode --
+    and the trend is empty hours later. That is why these were read out of
+    the gateway's own bytecode rather than from documentation.
+
+    `sampleMode` is a HISTORY property despite its generic name.
+
+===========================================================================
+Other system.* calls
+===========================================================================
 
 system.date.now()
     -> java.util.Date. Used only for the LastSampleTime diagnostic tag.

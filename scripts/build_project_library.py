@@ -65,6 +65,30 @@ RESOURCE = {
 }
 
 
+def apply_config(history_provider, provision):
+    """Rewrite the generated copy of ignition_adapter/config.py.
+
+    src/ stays generic and committed with safe defaults; the per-gateway
+    values are injected into the BUILD OUTPUT only. That way deploying to two
+    gateways with different historians is two commands rather than two edits
+    and a remembered revert.
+    """
+    target = os.path.join(OUT, "ignition_adapter", "config", "code.py")
+    if not os.path.isfile(target):
+        raise SystemExit("no generated config.py at %s" % (target,))
+
+    source = io.open(target, encoding="utf-8").read()
+    source = source.replace('HISTORY_PROVIDER = ""',
+                            'HISTORY_PROVIDER = "%s"' % (history_provider,))
+    if provision:
+        source = source.replace("PROVISION_ON_START = False",
+                                "PROVISION_ON_START = True")
+    io.open(target, "w", encoding="utf-8", newline="\n").write(source)
+
+    print("Config: history provider %r, provision-on-start %s"
+          % (history_provider, bool(provision)))
+
+
 def build():
     if os.path.isdir(OUT):
         shutil.rmtree(OUT)
@@ -350,11 +374,26 @@ def main():
                              "and is inert. Create it in the Designer there.")
     parser.add_argument("--delay", type=int, default=10000,
                         help="timer interval in ms (default 10000)")
+    parser.add_argument("--history-provider", default="",
+                        help="tag history provider name to historize into, "
+                             "from the gateway's Config > Tags > History "
+                             "page. Injected into the generated config.py; "
+                             "src/ is left generic.")
+    parser.add_argument("--provision", action="store_true",
+                        help="turn on one-shot auto-provisioning, so the "
+                             "first timer sample after this deploy creates "
+                             "the tag tree. Requires --history-provider.")
     args = parser.parse_args()
+
+    if args.provision and not args.history_provider:
+        print("--provision requires --history-provider", file=sys.stderr)
+        return 1
 
     if build() == 0:
         print("nothing built", file=sys.stderr)
         return 1
+    if args.history_provider or args.provision:
+        apply_config(args.history_provider, args.provision)
     if args.deploy:
         before = deploy(args.container, args.project)
         if args.with_timer:
