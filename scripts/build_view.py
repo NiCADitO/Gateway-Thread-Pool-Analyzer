@@ -142,6 +142,32 @@ def find_chart(node):
 BLOCKED_CHART_NAME = "blockedChart"
 TABLE = "ia.display.table"
 
+# FIXED heights, never derived from the chart's current size.
+#
+# Deriving was a real bug: the code read the existing height, subtracted the
+# blocked panel, and wrote the remainder back -- so every run shrank the chart
+# again. 592 -> 410 -> 220 across three runs, until the plot area collapsed to
+# nothing and only the pen table was left. The file looked fine each time; the
+# only symptom was a screenshot with no graph in it.
+MAIN_HEIGHT = 360
+BLOCKED_HEIGHT = 150
+PANEL_GAP = 12
+
+# Verified from the module's own destructuring of the visibility object:
+#   let {showPenControlDisplay: g, showDateRangeSelector: y,
+#        showTagBrowser: R} = m
+#
+# Both hidden panels are RUNTIME EDITING affordances, not dashboard content.
+# The pen-control table in particular is what was eating the vertical space --
+# it is a grid of every pen with min/max/average, which is genuinely useful
+# while you build a chart and pure noise once it is built. The date-range
+# selector stays: changing the window is the one thing a viewer actually does.
+CHART_VISIBILITY = {
+    "showTagBrowser": False,
+    "showPenControlDisplay": False,
+    "showDateRangeSelector": True,
+}
+
 
 def strip_generated(root):
     """Remove anything a previous run of this script added.
@@ -202,9 +228,20 @@ def build(view, provider, drv):
             "%s/pools/%s/blocked" % (TAG_ROOT, name),
             color, provider, drv))
     blocked["props"]["pens"] = blocked_pens
-    if "meta" in blocked:
-        blocked["meta"] = dict(blocked["meta"])
-        blocked["meta"]["name"] = "blockedChart"
+    # Always set, never conditional on the original having a meta block. The
+    # clone MUST carry a name or strip_generated() cannot find it on the next
+    # run, and the script silently stops being idempotent -- which is how 8.1
+    # ended up with three charts stacked on top of each other.
+    blocked["meta"] = dict(blocked.get("meta") or {})
+    blocked["meta"]["name"] = BLOCKED_CHART_NAME
+
+    # Hide the runtime editing panels on both charts.
+    for panel in (chart, blocked):
+        config = dict(panel["props"].get("config") or {})
+        visibility = dict(config.get("visibility") or {})
+        visibility.update(CHART_VISIBILITY)
+        config["visibility"] = visibility
+        panel["props"]["config"] = config
 
     # Blocked gets a short fixed panel. On a healthy gateway it is a flat line
     # on the floor, so it costs little screen; when it lifts off zero, the
@@ -213,14 +250,9 @@ def build(view, provider, drv):
     pos = dict(chart.get("position") or {})
     top = max(pos.get("y", 55), TILE_TOP + CAPTION_HEIGHT + VALUE_HEIGHT + 18)
     width = pos.get("width", 1222)
-    total = pos.get("height", 592)
-    gap = 12
-    blocked_height = 170
-    chart["position"] = dict(pos, y=top, width=width,
-                             height=max(220, total - blocked_height - gap))
-    blocked["position"] = dict(pos, y=top + max(220, total - blocked_height
-                                                - gap) + gap,
-                               width=width, height=blocked_height)
+    chart["position"] = dict(pos, y=top, width=width, height=MAIN_HEIGHT)
+    blocked["position"] = dict(pos, y=top + MAIN_HEIGHT + PANEL_GAP,
+                               width=width, height=BLOCKED_HEIGHT)
 
     # Insert the clone as a sibling of the original.
     parent = find_parent(root, chart)
