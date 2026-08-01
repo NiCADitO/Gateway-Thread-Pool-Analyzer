@@ -168,6 +168,50 @@ CHART_VISIBILITY = {
     "showDateRangeSelector": True,
 }
 
+# THE PLOT BACKGROUND IS A PROP, NOT CSS.
+#
+# This was chased the long way round first. The plot surface is an SVG rect
+# the component paints with an inline fill, so it looked like a styling
+# problem -- but the schema in
+# perspective-common-*.jar!/perspective-timeseries.components.json says:
+#
+#   plots.items.properties.color = {"type":"string","format":"color",
+#     "description":"The background color of the plot.","default":"#FFFFFF"}
+#
+# A Designer-made Power Chart has NO `plots` key at all, so the runtime
+# injects one default plot -- and that default is #FFFFFF. That is the white
+# rectangle. Setting the prop fixes it on BOTH versions, including 8.3 where
+# the CSS route could not reach.
+#
+# plots.items is additionalProperties:false with exactly four keys
+# (relativeWeight, color, markers, style). `style` is a TRAP: the plot-config
+# assembly returns it and then discards it in both versions, so it is left
+# unset here rather than set and silently ignored.
+PLOT_BACKGROUND = "#1A1F28"
+CHART_SURFACE = "#12161C"
+
+# X-axis colours. Deliberately NOT axes[N].color: the schema is identical in
+# both versions, but on 2.1.11 buildAxisWithDefaults calls getStringValue with
+# the default in the VALUE position and throws away whatever view.json
+# supplied -- a genuine silent no-op. timeAxis has no such defect.
+AXIS_LINE = "#2E3641"
+AXIS_TEXT = "#8B94A3"
+
+# "Last 24 hours", the window the mockup asks for.
+#
+# realtime here means a rolling window ending now, which is what the chart's
+# own "Last 8 hours" selector sets -- not "poll the live tag". The historical
+# alternative needs fixed startDate/endDate, which is the wrong shape for a
+# dashboard that should still be right tomorrow.
+#
+# config.rangeStartDate / rangeEndDate are left alone on purpose: both schema
+# descriptions literally begin "READ-ONLY:".
+CHART_RANGE = {
+    "mode": "realtime",
+    "unitOfTime": 24,
+    "measureOfTime": "hours",
+}
+
 
 def strip_generated(root):
     """Remove anything a previous run of this script added.
@@ -236,13 +280,36 @@ def build(view, provider, drv):
     blocked["meta"] = dict(blocked.get("meta") or {})
     blocked["meta"]["name"] = BLOCKED_CHART_NAME
 
-    # Hide the runtime editing panels on both charts.
+    # Hide the runtime editing panels, darken the surfaces, set the window.
     for panel in (chart, blocked):
         config = dict(panel["props"].get("config") or {})
         visibility = dict(config.get("visibility") or {})
         visibility.update(CHART_VISIBILITY)
         config["visibility"] = visibility
+        config.update(CHART_RANGE)
         panel["props"]["config"] = config
+
+        # The fix for the white plot area. One plot, explicitly coloured,
+        # instead of the implicit #FFFFFF one the runtime injects.
+        panel["props"]["plots"] = [
+            {"relativeWeight": 1, "color": PLOT_BACKGROUND},
+        ]
+
+        style = dict(panel["props"].get("style") or {})
+        style["backgroundColor"] = CHART_SURFACE
+        panel["props"]["style"] = style
+
+        time_axis = dict(panel["props"].get("timeAxis") or {})
+        time_axis["color"] = AXIS_LINE
+        tick = dict(time_axis.get("tick") or {})
+        tick["color"] = AXIS_LINE
+        tick_label = dict(tick.get("label") or {})
+        font = dict(tick_label.get("font") or {})
+        font["color"] = AXIS_TEXT
+        tick_label["font"] = font
+        tick["label"] = tick_label
+        time_axis["tick"] = tick
+        panel["props"]["timeAxis"] = time_axis
 
     # Blocked gets a short fixed panel. On a healthy gateway it is a flat line
     # on the floor, so it costs little screen; when it lifts off zero, the
