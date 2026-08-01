@@ -168,10 +168,20 @@ Recorded here so they are not re-derived. Anything unverified says so.
 | 8.3 adds `single-executor-*`, `shared-scheduled-executor-*`, `Scheduler-<hash>-*`, `managed-tag-provider-*`, `Cleaner-*`, auth-token pools | 8.3.8 |
 | `designer-auth-token-worker-*` appears only once a Designer connects | 8.3.8 |
 | `Scheduler-<hash>-N` carries a per-boot hash — only the prefix is stable | 8.3.8 |
-| Project library layout `ignition/script-python/<pkg>/<mod>/code.py` | 8.1.11 only — **unconfirmed on 8.3** |
-| Gateway rescans project resources on a timer, up to several minutes | 8.1.11 only |
+| Project library layout `ignition/script-python/<pkg>/<mod>/code.py` | 8.1.11 **and** 8.3.8 |
+| 8.1 rescans project resources on a timer (5–180 s observed) | 8.1.11 |
+| **8.3 does NOT watch the project directory** — loads from disk at boot only | 8.3.8 |
+| Timer event scripts: binary `ignition/event-scripts/data.bin` (gzip) | 8.1.11 |
+| Timer event scripts: plain `ignition/timer/<name>/handleTimerEvent.py` | 8.3.8 |
+| Tag config: `config.idb` on 8.1, files under `data/config/resources` on 8.3 | both |
+| Historian provider config lives in `core/com.inductiveautomation.historian/historian-provider/<name>/` | 8.3.8 |
+| `system.tag.configure` / `exists` / `writeBlocking` identical across versions | both |
+| 8.3 REMOVED `system.tag.read/readAll/write/writeAll` | 8.3.8 |
+| Jython 2.7.2 on 8.1.11, **2.7.4** on 8.3.8 | both |
 
-The last two rows are the open ones. They gate M6.
+All rows are now closed. The version differences that bite are the two in
+**bold**: an external push to 8.3 is ignored while reporting success, and a
+generated timer resource on 8.1 is ingested and then never executed.
 
 ### Thread counts on an idle gateway
 

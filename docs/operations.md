@@ -49,6 +49,18 @@ Two differences, both load-bearing:
   It does **not** work on 8.1 — there the resource is accepted, logged, its
   signature recomputed, and then never executed.
 
+**Where the provider name lives on 8.3.** It is the *historian provider*, not
+the datasource, and the two are usually spelled differently. 8.3 keeps it as a
+file, so you can read it rather than click through the web UI:
+
+```bash
+docker exec 81-GW2-1 sh -c 'ls /usr/local/bin/ignition/data/config/resources/core/com.inductiveautomation.historian/historian-provider/'
+```
+
+In this lab that returns `PostgreSQLHistorian`, whose `config.json` names the
+datasource `PostgreSQL`. Passing the datasource name instead would create 64
+tags with a provider that does not exist — and they would look historized.
+
 ### A gateway with no historian
 
 ```bash
@@ -118,13 +130,29 @@ would add ~12,960 rows/day against ~11,109 for all 64 real metrics combined —
 54% of rows carrying nothing trendable, and it would degrade on-change back
 into fixed-periodic.
 
-**Find your partition table first.** The query above uses `sqlth_1_data`,
-which is what a profile with partitioning *disabled* writes to. With monthly
-partitioning it is `sqlt_data_1_YYYY_MM`:
+**Find your partition table first — it is not the same on both gateways.**
+
+The table name is `sqlt_data_<drvid>_<YYYY>_<MM>` with monthly partitioning, or
+`sqlth_<drvid>_data` when partitioning is *disabled*. `drvid` identifies the
+**gateway**, not the database:
 
 ```bash
-docker exec postgresct psql -U ignition -d test -c "SELECT pname, to_timestamp(start_time/1000) FROM sqlth_partitions ORDER BY start_time DESC LIMIT 3;"
+docker exec postgresct psql -U ignition -d test -c "SELECT id, name, provider FROM sqlth_drv ORDER BY id;"
+docker exec postgresct psql -U ignition -d test -c "SELECT pname, to_timestamp(start_time/1000) FROM sqlth_partitions ORDER BY start_time DESC LIMIT 4;"
 ```
+
+In this lab both gateways point at the *same* `test` database, so the historian
+holds both and separates them by driver:
+
+| Gateway | drvid | Partitioning | Table |
+|---|---|---|---|
+| 8.1.11 `gw1` | 1 | disabled | `sqlth_1_data` |
+| 8.3.8 `gw2` | 3 | monthly | `sqlt_data_3_2026_08` |
+
+That is worth knowing before you conclude a gateway "isn't historizing":
+querying `sqlth_1_data` for gw2's data returns zero rows and looks exactly like
+a broken pipeline. Two gateways sharing one historian is normal and fine — the
+tag paths are identical, so it is only `drvid` that tells them apart.
 
 ---
 
