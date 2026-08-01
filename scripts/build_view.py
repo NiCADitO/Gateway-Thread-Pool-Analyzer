@@ -182,6 +182,7 @@ def strip_generated(root):
     Anything the Designer made is left alone.
     """
     kept = []
+    kept_chart = []
     removed = 0
     for child in root.get("children") or []:
         name = (child.get("meta") or {}).get("name", "")
@@ -248,11 +249,26 @@ def build(view, provider, drv):
     # small vertical range makes a 0 -> 2 change enormous rather than a
     # wobble lost against a count axis that runs to 120.
     pos = dict(chart.get("position") or {})
-    top = max(pos.get("y", 55), TILE_TOP + CAPTION_HEIGHT + VALUE_HEIGHT + 18)
     width = pos.get("width", 1222)
-    chart["position"] = dict(pos, y=top, width=width, height=MAIN_HEIGHT)
-    blocked["position"] = dict(pos, y=top + MAIN_HEIGHT + PANEL_GAP,
-                               width=width, height=BLOCKED_HEIGHT)
+
+    # Deterministic vertical stack. Every y is derived from the one above it,
+    # so the whole layout moves together and nothing can drift out of step.
+    tiles_bottom = TILE_TOP + TILE_HEIGHT
+    head1_y = tiles_bottom + 18
+    chart_y = head1_y + 38
+    legend_y = chart_y + MAIN_HEIGHT + 8
+    head2_y = legend_y + 26
+    blocked_y = head2_y + 38
+    table_head_y = blocked_y + BLOCKED_HEIGHT + 20
+    table_y = table_head_y + 34
+
+    chart["position"] = dict(pos, x=TILE_LEFT, y=chart_y, width=width,
+                             height=MAIN_HEIGHT)
+    blocked["position"] = dict(pos, x=TILE_LEFT, y=blocked_y, width=width,
+                               height=BLOCKED_HEIGHT)
+    layout = {"head1_y": head1_y, "legend_y": legend_y, "head2_y": head2_y,
+              "table_head_y": table_head_y, "table_y": table_y,
+              "width": width}
 
     # Insert the clone as a sibling of the original.
     parent = find_parent(root, chart)
@@ -263,20 +279,48 @@ def build(view, provider, drv):
 
     tiles, warning = build_tiles(root, "[default]GatewayHealth/Threads/")
 
+    # Headers and legend, from the same label template the tiles used.
+    label_template = None
+    for child in root.get("children") or []:
+        if child.get("type") == LABEL:
+            label_template = child
+            break
+    if label_template is None:
+        label_template = copy.deepcopy(LABEL_TEMPLATE)
+
+    chrome = []
+    chrome.extend(panel_header(
+        label_template, "pools", "Pool counts",
+        "Stepped, min/max aggregated. Six series, not twelve.",
+        TILE_LEFT, layout["head1_y"], layout["width"]))
+    chrome.extend(build_legend(label_template, TILE_LEFT, layout["legend_y"],
+                               layout["width"]))
+    chrome.extend(panel_header(
+        label_template, "blocked", "Blocked — all pools",
+        "Its own panel and its own scale. Flat zero is healthy.",
+        TILE_LEFT, layout["head2_y"], layout["width"]))
+
     # Table below the charts, sized to the pool list.
     import sys as _sys
     _sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
     from thread_monitor import taxonomy as _tax
     pool_keys = _tax.spec_keys()
     cells = build_table(root, "[default]GatewayHealth/Threads/", pool_keys)
-    if cells:
-        for child in root["children"]:
-            if child.get("type") == TABLE:
-                child["position"] = {
-                    "x": pos.get("x", 0), "y": blocked["position"]["y"]
-                    + blocked["position"]["height"] + 14,
-                    "width": width, "height": 40 + 28 * len(pool_keys)}
+    has_table = False
+    for child in root["children"]:
+        if child.get("type") == TABLE:
+            has_table = True
+            child["position"] = {
+                "x": TILE_LEFT, "y": layout["table_y"],
+                "width": layout["width"],
+                "height": 44 + 26 * len(pool_keys)}
+    if has_table:
+        chrome.extend(panel_header(
+            label_template, "table", "Current state by pool",
+            "The right-now answer, so the chart is only for history.",
+            TILE_LEFT, layout["table_head_y"], layout["width"]))
 
+    root["children"] = chrome + list(root["children"])
     return len(count_pens) + len(blocked_pens), tiles, warning, cells
 
 
@@ -306,17 +350,64 @@ LABEL_TEMPLATE = {
 # left-to-right; `alarm` marks the ones that are zero on a healthy gateway and
 # therefore mean something the instant they are not.
 TILES = [
-    ("TotalCount", "THREADS", False),
-    ("Pools/webserver/Count", "WEBSERVER", False),
-    ("BlockedTotal", "BLOCKED", True),
-    ("DeadlockedCount", "DEADLOCKED", True),
+    ("TotalCount", "TOTAL THREADS", "PeakCount", False),
+    ("Pools/webserver/Count", "WEBSERVER", "Pools/webserver/Runnable", False),
+    ("BlockedTotal", "BLOCKED", None, True),
+    ("DeadlockedCount", "DEADLOCKED", None, True),
 ]
 
-TILE_TOP = 34
-TILE_WIDTH = 150
-TILE_GAP = 14
-CAPTION_HEIGHT = 16
-VALUE_HEIGHT = 34
+TILE_TOP = 20
+TILE_LEFT = 16
+TILE_WIDTH = 190
+TILE_HEIGHT = 78
+TILE_GAP = 12
+CAPTION_HEIGHT = 14
+VALUE_HEIGHT = 32
+
+# A coord container used as a card. The shape -- type/props/meta/position with
+# a children list -- is the one in the Perspective module's own example view
+# (gateway/comm/dateLabelProject.json), and `props.style` is set there too, so
+# this is an observed shape rather than an assumed one.
+CONTAINER_TEMPLATE = {
+    "version": 0,
+    "type": "ia.container.coord",
+    "props": {},
+    "meta": {"name": "card"},
+    "position": {"x": 0, "y": 0, "width": 190, "height": 78},
+    "children": [],
+}
+
+# Colours match the mockup: near-black page, one step lighter for cards, a
+# hairline border rather than a shadow. Flat, because a SCADA screen left on a
+# wall wants contrast, not depth.
+CARD_STYLE = {
+    "backgroundColor": "#1A1F28",
+    "border": "1px solid #262D38",
+    "borderRadius": "8px",
+}
+ALARM_CARD_STYLE = {
+    "backgroundColor": "#1E1A1B",
+    "border": "1px solid #4A2F2E",
+    "borderRadius": "8px",
+}
+
+CAPTION_STYLE = {
+    "fontSize": "10px", "letterSpacing": "0.09em", "fontWeight": 600,
+    "color": "#7D8796", "textTransform": "uppercase",
+}
+VALUE_STYLE = {"fontSize": "26px", "fontWeight": 650, "color": "#E6EBF2"}
+ALARM_VALUE_STYLE = {"fontSize": "26px", "fontWeight": 650,
+                     "color": "#D9534F"}
+SUB_STYLE = {"fontSize": "10px", "color": "#6C7583"}
+
+PANEL_TITLE_STYLE = {
+    "fontSize": "11px", "letterSpacing": "0.07em", "fontWeight": 600,
+    "color": "#8B94A3", "textTransform": "uppercase",
+}
+PANEL_SUB_STYLE = {"fontSize": "10px", "color": "#626B78"}
+
+LEGEND_STYLE = {"fontSize": "10px", "color": "#98A1AF"}
+LEGEND_ITEM_WIDTH = 108
 
 
 def tag_label(template, name, tag_path, x, y, width, height, style):
@@ -378,33 +469,81 @@ def build_tiles(root, provider_root):
         root["children"].remove(stale)
 
     made = []
-    x = 24
-    for tag, caption, is_alarm in TILES:
-        # Muted caption, loud value. The caption is read once; the number is
-        # read every time.
-        made.append(static_label(
-            template, "cap_" + caption, caption, x, TILE_TOP,
-            TILE_WIDTH, CAPTION_HEIGHT,
-            {"fontSize": "11px", "letterSpacing": "0.09em",
-             "color": "#7D8796", "fontWeight": 600}))
-        value_style = {"fontSize": "28px", "fontWeight": 650,
-                       "color": "#E6EBF2"}
+    x = TILE_LEFT
+    for tag, caption, subtag, is_alarm in TILES:
+        card_style = dict(CARD_STYLE)
         if is_alarm:
-            # Amber, not red. These sit at zero almost always, and a
-            # permanently-red tile is one people learn to stop seeing.
-            # Colour-on-value would be better still and needs an expression
-            # binding, whose shape is not observed here -- see the module
-            # docstring.
-            value_style["color"] = "#D98C3F"
-        made.append(tag_label(
-            template, "val_" + caption, provider_root + tag,
-            x, TILE_TOP + CAPTION_HEIGHT, TILE_WIDTH, VALUE_HEIGHT,
-            value_style))
+            # A tile that is ALWAYS red is a tile people stop seeing, so the
+            # alarm styling here is a slightly warmer border rather than a
+            # permanent alert. Making it react to the value needs an
+            # expression binding, whose shape this project has not verified.
+            card_style = dict(ALARM_CARD_STYLE)
+
+        card = copy.deepcopy(CONTAINER_TEMPLATE)
+        card["meta"] = {"name": "cap_tile_" + caption}
+        card["position"] = {"x": x, "y": TILE_TOP,
+                            "width": TILE_WIDTH, "height": TILE_HEIGHT}
+        card["props"] = {"style": card_style}
+
+        kids = [static_label(template, "capText", caption, 12, 10,
+                             TILE_WIDTH - 24, CAPTION_HEIGHT, CAPTION_STYLE)]
+
+        value_style = dict(VALUE_STYLE)
+        if is_alarm:
+            value_style = dict(ALARM_VALUE_STYLE)
+        kids.append(tag_label(template, "valText", provider_root + tag,
+                              12, 26, TILE_WIDTH - 24, VALUE_HEIGHT,
+                              value_style))
+        if subtag:
+            kids.append(tag_label(template, "subText", provider_root + subtag,
+                                  12, 60, TILE_WIDTH - 24, 14, SUB_STYLE))
+        card["children"] = kids
+        made.append(card)
         x = x + TILE_WIDTH + TILE_GAP
 
     # Tiles first so they render above the charts in the coord container.
     root["children"] = made + list(root["children"])
     return len(TILES), None
+
+
+def panel_header(template, key, title, subtitle, x, y, width):
+    """A title and one line of guidance above a panel.
+
+    The subtitle is not decoration. Someone opening this screen cold needs to
+    be told that flat zero on the Blocked panel is the healthy state, or they
+    will read an empty chart as a broken one.
+    """
+    made = [static_label(template, "cap_h_" + key, title, x, y,
+                         width, 18, PANEL_TITLE_STYLE)]
+    if subtitle:
+        made.append(static_label(template, "cap_s_" + key, subtitle, x,
+                                 y + 17, width, 14, PANEL_SUB_STYLE))
+    return made
+
+
+def build_legend(template, x, y, width):
+    """A legend built out of labels, because the chart will not give us one.
+
+    The chart's own pen table is hidden -- it is an editing grid, not a
+    legend -- and no separate legend prop has been verified. Rather than
+    guess at one, the legend is drawn from the same primitives already proven
+    to work: a small label with a background colour as the swatch, and a
+    label beside it for the name.
+
+    It also means the legend is guaranteed to match SERIES, since both come
+    from the same list.
+    """
+    made = []
+    cursor = x
+    for name, color in SERIES:
+        made.append(static_label(
+            template, "cap_sw_" + name, "", cursor, y + 6, 14, 3,
+            {"backgroundColor": color, "borderRadius": "2px"}))
+        made.append(static_label(
+            template, "cap_lg_" + name, name, cursor + 20, y,
+            LEGEND_ITEM_WIDTH - 20, 14, LEGEND_STYLE))
+        cursor = cursor + LEGEND_ITEM_WIDTH
+    return made
 
 
 def build_table(root, provider_root, pool_keys):
