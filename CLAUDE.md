@@ -113,8 +113,9 @@ tests/                    CPython 3
   fixtures/*.tsv          real thread dumps off real gateways
 ```
 
-**Adding a pool means appending one `PoolSpec` and one UDT instance. It never
-means editing `sampler.py`.**
+**Adding a pool means appending one `PoolSpec`. It never means editing
+`sampler.py`, and it never means touching the Designer** — provisioning walks
+`taxonomy.POOL_SPECS`, so the five new tags come with it.
 
 ---
 

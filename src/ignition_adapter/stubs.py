@@ -128,6 +128,21 @@ system.tag.configure(basePath, tags, collisionPolicy)
     8.3-ONLY memory-tag properties -- do NOT send these to an 8.1 gateway:
     defaultValue, valuePersistence.
 
+system.tag.exists(tagPath)
+    -> boolean.
+
+    VERIFIED BY REFLECTION on both gateways: present on 8.1.11, and on 8.3.8
+    it reflects as exists(1 args) -> boolean. Read-only.
+
+    This is provisioning's INDEPENDENT gate. QualityCodes say what `configure`
+    thought it did; `exists` says what is actually there. Checking only the
+    former means a single misread return value can certify a tag tree that
+    was never created -- and the symptom is an empty chart hours later.
+
+    Note it must NOT be used as a write-probe substitute: an earlier design
+    proposed proving existence by writing a sentinel, which would have
+    scribbled -1 into all 64 live metric tags on every provisioning run.
+
 system.tag.getConfiguration(basePath, recursive)
     -> list of dicts describing the tags at basePath.
 

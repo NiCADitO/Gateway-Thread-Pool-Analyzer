@@ -12,11 +12,17 @@ PROVIDER = "PostgresDBConnection"
 
 
 class RecordingTags(stubs.FakeTagSystem):
-    """Records configure() calls and can be told to reject specific tags."""
+    """Records configure() calls and can be told to reject specific tags.
+
+    Models the audit too: exists() answers from whatever configure created,
+    so a fake that "creates" nothing is correctly seen as not provisioned.
+    """
 
     def __init__(self, bad_names=None, short_by=0, return_null=False,
-                 raise_on=None):
+                 raise_on=None, exists_raises=False, hide_paths=None):
         stubs.FakeTagSystem.__init__(self)
+        self._exists_raises = exists_raises
+        self._hidden = set(hide_paths or [])
         self._bad_names = set(bad_names or [])
         self._short_by = short_by
         self._return_null = return_null
@@ -35,6 +41,21 @@ class RecordingTags(stubs.FakeTagSystem):
         if self._short_by:
             qualities = qualities[:-self._short_by] or []
         return qualities
+
+    def exists(self, path):
+        if self._exists_raises:
+            raise RuntimeError("exists blew up")
+        if path in self._hidden:
+            return False
+        return path in set(self.created_paths()) | self._folder_paths()
+
+    def _folder_paths(self):
+        found = set()
+        for base_path, tags, _policy in self.configured:
+            for tag in tags:
+                if tag["tagType"] == provisioning.FOLDER:
+                    found.add(base_path + "/" + tag["name"])
+        return found
 
     def created_paths(self):
         """Every leaf path this fake was asked to create."""
@@ -317,3 +338,79 @@ def test_adding_a_pool_bucket_needs_no_provisioning_change():
             assert tagpaths.pool_member("newpool", member) in created
     finally:
         taxonomy.POOL_SPECS.remove(extra)
+
+
+# --- the independent audit ------------------------------------------------
+
+def test_audit_runs_and_finds_everything_on_a_good_run():
+    fake = RecordingTags()
+    result = provisioning.provision(PROVIDER, tag_system=fake)
+    assert result.missing == []
+    assert result.ok()
+    assert "verified" in result.summary()
+
+
+def test_a_tag_that_configure_claimed_but_does_not_exist_fails_the_run():
+    """The whole reason the audit exists.
+
+    configure returns Good for every tag, so the QualityCode gate passes --
+    and the tag is not there. Without a second opinion this run would be
+    certified and the chart would be empty.
+    """
+    ghost = tagpaths.pool_member("webserver", "Blocked")
+    fake = RecordingTags(hide_paths=[ghost])
+    result = provisioning.provision(PROVIDER, tag_system=fake)
+
+    assert not result.ok()
+    assert result.missing == [ghost]
+    assert "still missing" in result.summary()
+    # ... and the QualityCode gate alone would have passed it.
+    for step in result.steps:
+        assert step.ok(), step.describe()
+
+
+def test_an_audit_that_cannot_run_fails_closed():
+    """'Could not check' must never read the same as 'checked and fine'."""
+    fake = RecordingTags(exists_raises=True)
+    result = provisioning.provision(PROVIDER, tag_system=fake)
+    assert not result.ok()
+    assert result.audit_error
+    assert "audit could not run" in result.summary()
+
+
+def test_an_unaudited_result_is_never_ok():
+    result = provisioning.ProvisionResult()
+    result.steps.append(provisioning.Step("x", ["y"]))
+    result.steps[0].good = 1
+    assert result.missing is None
+    assert not result.ok(), "missing=None must not pass"
+
+
+def test_folders_use_ignore_and_leaves_use_overwrite():
+    """Overwrite on a FOLDER has undocumented blast radius.
+
+    'Completely replaces a tag's configuration' is not defined for a folder,
+    so re-provisioning could plausibly take all twelve pools and their
+    history with it. A folder is just a name; Ignore costs nothing.
+    """
+    fake = RecordingTags()
+    provisioning.provision(PROVIDER, tag_system=fake)
+    for base, tags, policy in fake.configured:
+        kinds = set()
+        for tag in tags:
+            kinds.add(tag["tagType"])
+        if kinds == {provisioning.FOLDER}:
+            assert policy == provisioning.COLLISION_IGNORE, base
+        else:
+            assert policy == provisioning.COLLISION_OVERWRITE, base
+
+
+def test_folder_steps_do_not_gate_the_run():
+    """Under Ignore, an existing folder's QualityCode is undocumented.
+
+    A second provisioning run must not report folder 'failures' that mean
+    nothing -- the audit proves folders exist, which is stronger anyway.
+    """
+    fake = RecordingTags(bad_names=["GatewayHealth", "Pools", "webserver"])
+    result = provisioning.provision(PROVIDER, tag_system=fake)
+    assert result.ok(), result.summary()

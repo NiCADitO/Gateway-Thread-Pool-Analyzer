@@ -128,7 +128,8 @@ And one thing worth knowing:
    who does not know the subsystem.
 4. `python -m pytest`. The invariant tests run against every fixture
    automatically.
-5. Add a UDT instance for the new bucket (M3).
+5. Re-run provisioning. The five new tags are created from the catalog; there
+   is no Designer step and no UDT to edit.
 
 Never add a prefix you have not seen in a real dump. A guessed prefix produces
 a bucket that trends a flat zero, and a flat zero reads as "healthy".

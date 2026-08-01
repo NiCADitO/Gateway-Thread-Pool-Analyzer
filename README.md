@@ -49,7 +49,8 @@ Twelve buckets. Every thread lands in exactly one, first match wins, and
 | `other` | everything else | Expected near zero. Rising means a new pool appeared. |
 
 Adding a bucket is one `PoolSpec` in [taxonomy.py](src/thread_monitor/taxonomy.py)
-plus one UDT instance. It never means touching the sampler.
+and nothing else. Provisioning walks the catalog, so the tags come with
+it. It never means touching the sampler.
 
 ---
 
@@ -87,9 +88,12 @@ documentation. That immediately paid for itself:
                ApiRoute, UnmatchedNames}
 ```
 
-One `ThreadPool` UDT instance per bucket — so history settings are configured
-once on the definition rather than sixty times, and adding a pool is one
-instance rather than five hand-built tags.
+69 flat memory tags, created by `system.tag.configure`. **No UDT** — the plan
+originally called for one, and it was dropped: its only real benefit was
+"history configured in one place", which a `for` loop already gives you.
+Keeping it would have meant depending on `_types_` semantics and
+definition-to-instance history propagation, both of which the live-gateway
+probe could only mark *inferred*, never verified.
 
 `NEW` and `TERMINATED` are folded into `Count` rather than given their own
 tags: two flat lines across every pool isn't worth ~24 historized tags. If they

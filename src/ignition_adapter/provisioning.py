@@ -30,17 +30,29 @@ THREE DESIGN DECISIONS, and why.
    N qualities out, and this module refuses to call a run successful if those
    two numbers disagree.
 
-3. THE READ-BACK IS NOT THE ORACLE.
-   `system.tag.getConfiguration`'s return shape is unconfirmed on both
-   gateways, so verifying success by reading configuration back would mean
-   guessing at a shape and, worse, guessing generously. Instead the oracle is
-   the thing that already works and is already proven: the timer's own
-   `writeBlocking`. Before provisioning it reports 69 of 69 rejected with
-   Bad_NotFound; after provisioning it reports 69 written. That signal is
-   real, is already logged every sample, and needs no new API.
+3. SUCCESS IS NEVER CERTIFIED BY THE QUALITYCODES ALONE.
+   Three independent signals have to agree, and none of them is a read-back
+   of `getConfiguration` -- whose return shape is unconfirmed on both
+   gateways, so leaning on it would mean guessing at a shape and guessing
+   generously.
 
-   History is proven separately and even more directly, by rows appearing in
-   the historian database. Neither is asserted here on faith.
+   a) The QualityCodes from `configure`, one per tag, inspected individually.
+   b) `audit()`, which asks `system.tag.exists(path)` for all 69 paths.
+      Verified by reflection on both gateways. This is a SECOND OPINION: (a)
+      says what configure believed it did, (b) says what the provider
+      actually holds. It fails closed -- if the audit cannot run, ok() is
+      False, because "could not check" must never read as "checked and fine".
+   c) The timer's own next sample, which was already working before any of
+      this existed: it logs `69 of 69 writes rejected` before provisioning
+      and `69 tags written` after.
+
+   History is proven more directly still, by rows appearing in the historian
+   database. Nothing here is asserted on faith.
+
+   Note (b) must never be done by WRITING a probe value. An earlier design
+   proposed exactly that, which would have scribbled the -1 "probe failed"
+   sentinel into all 64 live metric tags on every provisioning run --
+   corrupting the very signal this project exists to produce.
 
 Jython 2.7: no f-strings, no comprehensions, bare except only.
 """
@@ -64,6 +76,18 @@ except ImportError:
 # effect. MergeOverwrite would be the choice if we were patching tags someone
 # else owns.
 COLLISION_OVERWRITE = "o"
+
+# 'i' = Ignore. FOLDERS ARE NOT OVERWRITTEN, and this is not fussiness.
+#
+# Overwrite is documented as "completely replaces a tag's configuration".
+# What that means for a FOLDER -- whether its children survive -- is nowhere
+# in the shipped documentation. Re-provisioning with 'o' on the Pools folder
+# therefore risks taking all twelve pools and their history configuration
+# with it, and the symptom would be a chart that silently stops.
+#
+# A folder has no configuration worth replacing anyway: it is a name. So
+# Ignore costs nothing and removes the whole question.
+COLLISION_IGNORE = "i"
 
 FOLDER = "Folder"
 ATOMIC = "AtomicTag"
@@ -141,17 +165,27 @@ def folder(name):
 
 
 class Step(object):
-    """One configure() call and what came back."""
+    """One configure() call and what came back.
 
-    def __init__(self, base_path, names):
+    `advisory` steps do not gate the run. Folder creation is advisory because
+    it uses collisionPolicy Ignore, and what QualityCode an existing tag comes
+    back with under Ignore is not documented -- so a second provisioning run
+    could report folder "failures" that mean nothing. Folders are proved to
+    exist by the audit instead, which is a stronger check anyway.
+    """
+
+    def __init__(self, base_path, names, advisory=False):
         self.base_path = base_path
         self.names = names
         self.expected = len(names)
         self.good = 0
         self.bad = []
         self.error = ""
+        self.advisory = advisory
 
     def ok(self):
+        if self.advisory:
+            return not self.error
         return (not self.error
                 and not self.bad
                 and self.good == self.expected)
@@ -173,6 +207,10 @@ class ProvisionResult(object):
     def __init__(self):
         self.steps = []
         self.error = ""
+        # Paths the independent audit could not find. None means the audit
+        # did not run, which is NOT the same as "found nothing missing".
+        self.missing = None
+        self.audit_error = ""
 
     def ok(self):
         if self.error:
@@ -182,6 +220,15 @@ class ProvisionResult(object):
         for step in self.steps:
             if not step.ok():
                 return False
+        # Fail closed. If the audit could not run, this run is not certified,
+        # because "we could not check" must never read the same as "checked
+        # and fine".
+        if self.audit_error:
+            return False
+        if self.missing is None:
+            return False
+        if self.missing:
+            return False
         return True
 
     def tag_count(self):
@@ -200,14 +247,20 @@ class ProvisionResult(object):
     def summary(self):
         if self.error:
             return "provisioning failed: " + self.error
+        if self.audit_error:
+            return "provisioned, but the audit could not run: " + \
+                self.audit_error
+        if self.missing:
+            return "provisioned, but %d tag(s) are still missing: %s" % (
+                len(self.missing), ", ".join(self.missing[:3]))
         if not self.ok():
             return "provisioned with %d problem(s): %s" % (
                 len(self.problems()), " | ".join(self.problems()))
-        return "provisioned %d tags across %d folders" % (
-            self.tag_count(), len(self.steps))
+        return "provisioned %d tags across %d folders, all %d verified" % (
+            self.tag_count(), len(self.steps), len(tagpaths.all_paths()))
 
 
-def _configure(target, base_path, tags, result):
+def _configure(target, base_path, tags, result, policy=COLLISION_OVERWRITE):
     """One configure call, with every returned QualityCode inspected.
 
     An empty or short quality list is treated as FAILURE, not success. The
@@ -218,11 +271,11 @@ def _configure(target, base_path, tags, result):
     names = []
     for tag in tags:
         names.append(tag["name"])
-    step = Step(base_path, names)
+    step = Step(base_path, names, advisory=(policy == COLLISION_IGNORE))
     result.steps.append(step)
 
     try:
-        qualities = target.configure(base_path, tags, COLLISION_OVERWRITE)
+        qualities = target.configure(base_path, tags, policy)
     except:  # noqa: E722 -- bare: see CLAUDE.md #3.
         step.error = "%s" % (sys.exc_info()[1],)
         return step
@@ -240,6 +293,33 @@ def _configure(target, base_path, tags, result):
         else:
             step.bad.append("%s (%s)" % (name, quality))
     return step
+
+
+def audit(target, result):
+    """Independently confirm every expected tag is really there.
+
+    `system.tag.exists(path) -> boolean`, verified by reflection on both
+    gateways. This is deliberately a SECOND opinion: the QualityCodes say
+    what `configure` believed it did, this says what the tag provider
+    actually holds. Certifying a run on the first alone means one misread
+    return value can bless a tag tree that does not exist.
+
+    Fails closed. A raising or unavailable `exists` sets audit_error, and
+    ok() is then False -- "could not check" must never read the same as
+    "checked and fine".
+    """
+    paths = tagpaths.all_paths()
+    missing = []
+    for path in paths:
+        try:
+            present = target.exists(path)
+        except:  # noqa: E722 -- bare: see CLAUDE.md #3.
+            result.audit_error = "exists(%s) failed -- %s" % (
+                path, sys.exc_info()[1])
+            return
+        if not present:
+            missing.append(path)
+    result.missing = missing
 
 
 def _is_good(quality):
@@ -284,20 +364,21 @@ def provision(history_provider, tag_system=None):
     # create intermediate folders, and a leaf written into a folder that does
     # not exist is precisely the silent half-failure this module is built to
     # avoid.
-    _configure(target, provider, [folder(parts[0])], result)
-    _configure(target, provider + parts[0], [folder(parts[1])], result)
+    _configure(target, provider, [folder(parts[0])], result, COLLISION_IGNORE)
+    _configure(target, provider + parts[0], [folder(parts[1])], result,
+               COLLISION_IGNORE)
 
     base = provider + root
     _configure(target, base,
                [folder(tagpaths.POOLS_FOLDER),
                 folder(tagpaths.DIAGNOSTICS_FOLDER)],
-               result)
+               result, COLLISION_IGNORE)
 
     pools_base = provider + root + "/" + tagpaths.POOLS_FOLDER
     pool_folders = []
     for key in taxonomy.spec_keys():
         pool_folders.append(folder(key))
-    _configure(target, pools_base, pool_folders, result)
+    _configure(target, pools_base, pool_folders, result, COLLISION_IGNORE)
 
     # Then the leaves, one flat list per folder so N tags in means N
     # qualities out and the mapping is unambiguous.
@@ -322,4 +403,5 @@ def provision(history_provider, tag_system=None):
     _configure(target, base + "/" + tagpaths.DIAGNOSTICS_FOLDER,
                diagnostic_leaves, result)
 
+    audit(target, result)
     return result
