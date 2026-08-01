@@ -180,6 +180,38 @@ def check_project(container, project):
                " ".join(listing.stdout.split()) or "(none)"))
 
 
+def restart_and_wait(container, timeout=300):
+    """Restart the gateway and block until it reports healthy.
+
+    This is the 8.3 deploy path. 8.1 watches its project directory and picks
+    external writes up within seconds; 8.3 does NOT -- see the --restart help
+    and ignition-project/NOTES.md for the evidence. On 8.3 the files sit on
+    disk being ignored until the gateway reloads them at boot.
+    """
+    print("Restarting %s (8.3 does not watch the project directory)..."
+          % (container,))
+    subprocess.check_call(["docker", "restart", container],
+                          stdout=subprocess.DEVNULL)
+
+    waited = 0
+    while waited < timeout:
+        time.sleep(5)
+        waited += 5
+        probe = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Health.Status}}", container],
+            capture_output=True, text=True)
+        status = probe.stdout.strip()
+        if status == "healthy":
+            print("Gateway healthy after %ds." % (waited,))
+            return True
+        sys.stdout.write("  waiting for the gateway... %ds (%s)\r"
+                         % (waited, status or "?"))
+        sys.stdout.flush()
+
+    print("\nGateway did not report healthy in %ds." % (timeout,))
+    return False
+
+
 def deploy(container, project):
     check_project(container, project)
     target = "%s/ignition/script-python" % (_project_path(project),)
@@ -207,7 +239,7 @@ def deploy(container, project):
         pushed += 1
     print("Pushed %d script resources to %s:%s"
           % (pushed, container, project))
-    wait_for_ingest(container, before)
+    return before
 
 
 def main():
@@ -219,13 +251,26 @@ def main():
     parser.add_argument("--project",
                         default="Gateway_Thread_Pool_Analyzer_and_Historizer",
                         help="Ignition project to push the library into")
+    parser.add_argument("--restart", action="store_true",
+                        help="REQUIRED ON 8.3. Restart the gateway after "
+                             "pushing instead of waiting for a rescan. 8.1 "
+                             "watches its project directory and reloads "
+                             "within seconds; 8.3 does not watch it at all, "
+                             "so files sit on disk being ignored until the "
+                             "gateway reloads them at boot. Verified: an "
+                             "external edit on 8.3 went unnoticed for 5 "
+                             "minutes and loaded immediately on restart.")
     args = parser.parse_args()
 
     if build() == 0:
         print("nothing built", file=sys.stderr)
         return 1
     if args.deploy:
-        deploy(args.container, args.project)
+        before = deploy(args.container, args.project)
+        if args.restart:
+            restart_and_wait(args.container)
+        else:
+            wait_for_ingest(args.container, before)
     return 0
 
 

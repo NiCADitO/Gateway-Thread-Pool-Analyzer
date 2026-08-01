@@ -41,33 +41,107 @@ about 8.3's layout until a project exists there.
 
 ---
 
-## Gateway event scripts — CANNOT be synthesized
+## Gateway timer scripts — plain Python on 8.3 (earlier conclusion was wrong)
 
-`event-scripts` is a real resource type (found in the gateway jars). But the
-payload is **not** plain Python on disk.
+I originally concluded these could not be synthesized, reasoning from the
+sibling resources on 8.1.11 (`ignition/global-props/`,
+`com.inductiveautomation.vision/client-tags/`) which store `resource.json`
+plus a **binary `data.bin`**. That inference was wrong.
 
-Evidence: the sibling resources that do exist on 8.1.11 —
-`ignition/global-props/` and `com.inductiveautomation.vision/client-tags/` —
-each store `resource.json` **plus a binary `data.bin`**. Perspective views, by
-contrast, use readable JSON. Gateway event scripts follow the `data.bin` shape.
+Once a timer script existed on 8.3.8, it turned out to be **readable Python**:
 
-So the timer script must be created **once in the Designer**. A synthesized
-binary resource would fail opaquely, which is exactly the failure mode
-CLAUDE.md #5 exists to prevent.
+```
+ignition/timer/<name>/handleTimerEvent.py
+ignition/timer/<name>/resource.json
+```
 
-This is a one-time cost: the script body is two lines and never changes,
-because all the real code lives in the project library, which *is* pushable.
+```json
+{
+  "scope": "G",
+  "version": 1,
+  "restricted": false,
+  "overridable": true,
+  "files": ["handleTimerEvent.py"],
+  "attributes": {
+    "sharedThread": true,
+    "delay": 10000,
+    "fixedDelay": true,
+    "enabled": true,
+    "lastModification": {"actor": "ad", "timestamp": "..."},
+    "lastModificationSignature": "..."
+  }
+}
+```
+
+The body is a function, tab-indented, not a bare statement list:
 
 ```python
-# Gateway Events > Timer > threadMonitor
-#   Delay: 10000 ms   Mode: Fixed Delay   Threading: Shared   Enabled: yes
-from ignition_adapter import entry
-entry.sample_and_write()
+def handleTimerEvent():
+	from ignition_adapter import entry
+	entry.sample_and_write()
 ```
+
+So timer scripts **can** be generated on 8.3. `delay` was changed from 1000 to
+10000 by editing this file directly and the gateway honoured it after a
+restart — confirming both that the format is right and that the file is the
+source of truth at boot.
 
 Fixed **Delay**, not Fixed Rate: the next sample cannot start until the last
 finished, so a slow sample degrades resolution instead of stacking up.
 `entry.sample_and_write()` also carries its own reentrancy guard.
+
+**Still unverified on 8.1** — the 8.1 layout may still be the binary `data.bin`
+shape. Do not assume this transfers.
+
+---
+
+## 8.3 does NOT watch the project directory — CONFIRMED
+
+This is the single most important operational difference between the two
+versions, and it silently makes a deploy look like it worked.
+
+| | 8.1.11 | 8.3.8 |
+|---|---|---|
+| External file push | logs `Restarting gateway scripts...` within **5s** | **never** picked up |
+| Waited | — | 240s, then a further 60s after editing a file the Designer itself wrote |
+| On gateway restart | n/a | loads from disk **immediately** |
+
+8.3 reloads on notification (a Designer save logs
+`Restarting gateway scripts... project=..., collection=...`), not from a
+filesystem watch. Its project store is content-addressed —
+`data/projects/.resources/` holds hash-named entries plus a `.meta` — and 8.3
+also migrated its whole gateway config out of `config.idb` into
+`data/config/resources/` (see the migration log in that directory).
+
+**Consequence:** `scripts/build_project_library.py` needs `--restart` on 8.3.
+Without it the push lands on disk, the script reports success, and the gateway
+goes on running the previous code — indistinguishable from the change not
+working, which is the same trap `wait_for_ingest()` exists to catch on 8.1.
+
+---
+
+## Live verification of the whole chain — 8.3.8
+
+With the library deployed and the timer running, the gateway logged:
+
+```
+W [GatewayThreadMonitor]: 69 of 69 writes rejected,
+  first: [default]GatewayHealth/Threads/Pools/webserver/Count (Bad_NotFound)
+  (110 threads, 31ms)
+```
+
+Four things confirmed at once, all previously assumptions:
+
+1. **Gateway scope is real.** 110 threads is the gateway's own count. The
+   standalone Jython harness sees 6, so the numbers themselves distinguish the
+   two — a report from the wrong JVM would have looked plausible.
+2. **The 8.3 restart deploy path works.**
+3. **`writeBlocking` does not raise for a nonexistent tag.** It returns
+   `Bad_NotFound` per path while the call itself succeeds — exactly as
+   `stubs.py` documents. `tags.py` inspects every QualityCode for this reason;
+   without that, a completely unprovisioned tag tree reports as a clean write.
+4. **Sample cost on a real gateway: 31ms first, then 13ms.** Against 4-5ms on
+   the 6-thread test JVM. Comfortable at a 10s timer.
 
 ---
 

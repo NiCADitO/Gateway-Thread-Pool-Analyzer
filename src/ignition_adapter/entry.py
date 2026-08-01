@@ -32,6 +32,97 @@ _sampling = [False]
 # running. Saves provisioning a tag just to answer "is it working".
 _last = [None]
 
+# Samples taken since this module was loaded. Drives the heartbeat below.
+_count = [0]
+
+# Last thing logged, so a persistent fault is not re-logged every sample.
+# An unprovisioned tag tree fails identically forever; at a 10s timer that is
+# 8,640 identical warnings a day, which buries the one line that changes.
+_last_logged = [None]
+
+LOGGER_NAME = "GatewayThreadMonitor"
+
+# Log a summary every N samples. At a 10s timer that is once every 5 minutes:
+# frequent enough to prove liveness in `docker logs`, rare enough not to be
+# the noisiest thing in the gateway log.
+HEARTBEAT_EVERY = 30
+
+
+def _logger():
+    """The gateway logger, or None off-gateway."""
+    if system is None:
+        return None
+    try:
+        return system.util.getLogger(LOGGER_NAME)
+    except:  # noqa: E722 -- bare: see CLAUDE.md #3.
+        return None
+
+
+def _log(level, message):
+    """Log if we can, and never let logging itself break a sample.
+
+    A timer script has nowhere to return a value TO -- the gateway discards
+    it -- so before any tags exist this log is the only evidence the thing is
+    running at all. It stays useful afterwards for the same reason: when the
+    tags stop updating, the question is whether the timer died or the writes
+    failed, and those look identical from the tag browser.
+    """
+    logger = _logger()
+    if logger is None:
+        return
+    try:
+        if level == "warn":
+            logger.warn(message)
+        else:
+            logger.info(message)
+    except:  # noqa: E722 -- bare: see CLAUDE.md #3.
+        pass
+
+
+def _fault_key(result):
+    """What KIND of state this sample is in, ignoring the numbers.
+
+    Thread counts change every sample, so keying the log on the full summary
+    would defeat the deduplication entirely. Keying on the fault instead means
+    'still broken the same way' stays quiet while 'broken differently' or
+    'recovered' speaks up immediately.
+    """
+    if result.error:
+        return "error:" + result.error
+    if result.bad_paths:
+        return "rejected:%d" % (len(result.bad_paths),)
+    return "ok"
+
+
+def _log_sample(result, summary):
+    """Log a sample, without re-logging a persistent fault every 10 seconds.
+
+    Rules, in order:
+      - state changed (including recovery) -> log it now
+      - first ever sample                  -> log it now, so a deploy is
+                                              confirmed in seconds
+      - otherwise                          -> only on the heartbeat
+
+    An unprovisioned tag tree fails identically forever. Logging that on every
+    sample is 8,640 lines a day that say nothing new, and it buries the line
+    that does.
+    """
+    key = _fault_key(result)
+    changed = key != _last_logged[0]
+    heartbeat = _count[0] % HEARTBEAT_EVERY == 0
+
+    if not (changed or _count[0] == 1 or heartbeat):
+        return
+
+    _last_logged[0] = key
+
+    if not result.ok():
+        _log("warn", summary)
+    elif changed and _count[0] > 1:
+        _log("info", "recovered: " + summary)
+    else:
+        _log("info", "sample %d: %s" % (_count[0], summary))
+
 
 def dump():
     """Read the gateway's threads and print a report. Writes nothing.
@@ -61,6 +152,7 @@ def sample_and_write():
     historized tag rather than just a log line.
     """
     if _sampling[0]:
+        _log("warn", "skipped: previous sample still running")
         return "skipped: previous sample still running"
     _sampling[0] = True
     try:
@@ -68,9 +160,18 @@ def sample_and_write():
             snap = jvm.read()
             _last[0] = snap
             result = tags.write_snapshot(snap)
-            return result.summary()
+            _count[0] = _count[0] + 1
+
+            summary = "%s (%d threads, %dms)" % (
+                result.summary(), snap.total_threads,
+                snap.sample_duration_ms or -1)
+
+            _log_sample(result, summary)
+            return summary
         except:  # noqa: E722 -- bare: see CLAUDE.md #3.
-            return "sample failed: %s" % (sys.exc_info()[1],)
+            message = "sample failed: %s" % (sys.exc_info()[1],)
+            _log("warn", message)
+            return message
     finally:
         _sampling[0] = False
 

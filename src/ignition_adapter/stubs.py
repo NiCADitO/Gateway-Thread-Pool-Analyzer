@@ -98,6 +98,15 @@ system.tag.configure(basePath, tags, collisionPolicy)
 system.date.now()
     -> java.util.Date. Used only for the LastSampleTime diagnostic tag.
 
+system.util.getLogger(name)
+    -> LoggerEx, with .trace/.debug/.info/.warn/.error(String).
+
+    Output goes to the gateway's wrapper log, which the container symlinks to
+    /dev/stdout -- so `docker logs <container>` shows it. That is the ONLY
+    channel this project has for observing the gateway timer before any tags
+    exist, which is why sample_and_write() logs rather than only returning a
+    string (a timer script's return value is discarded).
+
 ===========================================================================
 """
 import sys
