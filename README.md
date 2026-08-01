@@ -18,8 +18,8 @@ own tags.
 
 | Milestone | State | What it proves |
 |---|---|---|
-| **M0** Thread-name discovery | **done** | Real thread names captured off two live gateways. The catalog is evidence-based, not guessed. |
-| **M1** Pure counting core | **done** | 46 tests, no gateway required. `other` is empty on both real gateways. |
+| **M0** Thread-name discovery | **done** | Real thread names captured off three live gateways — 8.1.11, 8.1.48 and 8.3.8. The catalog is evidence-based, not guessed. |
+| **M1** Pure counting core | **done** | 49 tests, no gateway required. `other` is empty on all three real gateways. |
 | M2 Ignition adapter | next | `ThreadMXBean` read, printed from the script console. Writes nothing. |
 | M3 Tag provisioning | | ~69 tags exist under `[default]GatewayHealth/Threads/`. |
 | M4 Gateway timer | | Values move on a 10 s fixed-delay timer in Gateway scope. |
@@ -53,15 +53,20 @@ plus one UDT instance. It never means touching the sampler.
 
 ---
 
-## What the two-gateway capture found
+## What capturing three gateways found
 
-The catalog was built from real dumps off two live gateways, not from
+The catalog was built from real dumps off 8.1.11, 8.1.48 and 8.3.8, not from
 documentation. That immediately paid for itself:
 
-- **8.1.48 renamed the OPC-UA pool** from `milo-*` to `opc-ua-*`, and replaced
-  `gateway-shared-exec-engine-*` with `shared-worker-*`. A catalog built from
-  either gateway alone trends a **flat zero** on the other — and a flat zero
-  reads as "healthy", not "broken measurement".
+- **Thread names drift hard across versions.** 8.1.48 renamed the OPC-UA pool
+  from `milo-*` to `opc-ua-*` and replaced `gateway-shared-exec-engine-*` with
+  `shared-worker-*`. 8.3.8 added eight pools neither 8.1 gateway has at all.
+  Of every prefix in the catalog, `webserver-` is the only one stable across
+  all three. A catalog built from one gateway trends a **flat zero** on the
+  others — and a flat zero reads as "healthy", not "broken measurement".
+- **Some threads only appear under load.** `designer-auth-token-worker-*`
+  shows up on 8.3 only once a Designer connects, so the prefix stops before
+  the role.
 - **`ThreadMXBean` does not see VM-internal threads.** A `kill -3` dump on
   8.1.11 listed 130 threads; `getAllThreadIds()` reports 117. The 13 missing
   ones (`GC Thread#*`, `G1 *`, `VM Thread`, `VM Periodic Task Thread`) carry no

@@ -7,20 +7,41 @@ each thread to the first spec that matches, so `OTHER` must stay last.
 never means editing sampler.py.**
 
 Provenance: every prefix below was taken from a real thread dump off a live
-gateway, not from documentation and not from guesswork. Two were captured:
-`tests/fixtures/threads_81_11.tsv` (8.1.11 / OpenJDK 11, 117 threads) and
-`tests/fixtures/threads_81_48.tsv` (8.1.48 / OpenJDK 17, 105 threads). See
-`docs/development.md` for how to capture a fresh one. The one name that came
-from the forum post -- 'webserver' -- is also the only one that turned out to
-be exactly right.
+gateway, not from documentation and not from guesswork. Three were captured:
 
-Capturing two versions rather than one paid for itself immediately: 8.1.48
-renamed the OPC-UA pool from `milo-*` to `opc-ua-*` and replaced
-`gateway-shared-exec-engine-*` with `shared-worker-*`. A catalog built from
-either gateway alone reports a permanently empty bucket on the other, and an
-empty bucket on a trend is indistinguishable from a healthy idle one. Both
-spellings are kept for that reason -- do not "clean up" the one your gateway
-does not use.
+    tests/fixtures/threads_81_11.tsv   8.1.11 / OpenJDK 11   117 threads
+    tests/fixtures/threads_81_48.tsv   8.1.48 / OpenJDK 17   105 threads
+    tests/fixtures/threads_83_8.tsv    8.3.8  / OpenJDK 17   101 threads
+
+See `docs/development.md` for how to capture a fresh one. The one name that
+came from the forum post -- 'webserver' -- is also the only one that turned
+out to be exactly right, and it is the only prefix stable across all three.
+
+Capturing three gateways rather than one paid for itself immediately:
+
+- 8.1.48 renamed the OPC-UA pool from `milo-*` to `opc-ua-*` and replaced
+  `gateway-shared-exec-engine-*` with `shared-worker-*`.
+- 8.3.8 added eight more pools that neither 8.1 gateway has at all --
+  `single-executor-*`, `shared-scheduled-executor-*`, `Scheduler-<hash>-*`,
+  `managed-tag-provider-*`, `Cleaner-*` and the auth-token schedulers.
+
+A catalog built from any one gateway reports permanently empty buckets on the
+others, and an empty bucket on a trend is indistinguishable from a healthy
+idle one. Every spelling is kept for that reason -- do not "clean up" the one
+your gateway does not use.
+
+Two prefixes are deliberately looser than the names that prompted them:
+
+- `designer-auth-token-` and `client-auth-token-` stop before the role,
+  because 8.3.8 has both `-scheduler-N` and `-worker-N` and the workers only
+  appear once a Designer connects. The first capture off a freshly-booted
+  gateway did not have them.
+- `gateway-log` covers `gateway-log-monitoring-*` and `gateway-log-maintenance`,
+  the latter being periodic -- absent from one capture off 8.1.11 and present
+  in another ten minutes later.
+
+Both are the same lesson: a catalog built from a single instant of a single
+gateway misses threads that are not always up.
 
 Two deliberate omissions, both load-bearing:
 
@@ -95,6 +116,7 @@ POOL_SPECS = [
             # 8.1.48. Replaces gateway-shared-exec-engine-, which is absent
             # there -- so both must stay listed to span the 8.1 line.
             matchers.prefix("shared-worker-"),
+            matchers.prefix("single-executor-"),  # 8.3.8
         ),
         "The gateway's general-purpose work pool. Almost every subsystem "
         "hands short tasks to it, so a backlog here means something else is "
@@ -110,6 +132,10 @@ POOL_SPECS = [
             matchers.prefix("gateway-expr-pollingfunc-timer"),
             matchers.prefix("Timer-"),
             matchers.prefix("shared-scheduler-"),  # 8.1.48
+            # 8.3.8. Note 'Scheduler-<hash>-N' is capitalised and carries a
+            # per-boot hash, so only the prefix is stable.
+            matchers.prefix("shared-scheduled-executor-"),
+            matchers.prefix("Scheduler-"),
         ),
         "Fixed-rate work: gateway timer scripts, scheduled reports, polling "
         "expression tags. Growth here usually means a scheduled task is "
@@ -123,6 +149,7 @@ POOL_SPECS = [
             matchers.prefix("tag-provider"),
             matchers.prefix("tag-group-manager"),
             matchers.prefix("gateway.tags."),
+            matchers.prefix("managed-tag-provider-"),  # 8.3.8
         ),
         "Tag providers, tag group execution and the subscription model. "
         "Blocked threads here stall tag evaluation gateway-wide.",
@@ -213,6 +240,16 @@ POOL_SPECS = [
             # 8.1.48 TLS trust-manager refresh threads.
             matchers.prefix("client-trust-manager-"),
             matchers.prefix("server-trust-manager-"),
+            # 8.3.8 identity and auth-token housekeeping. Kept here rather
+            # than given a `security` bucket of their own: they are
+            # constant-count and there is nothing to read in the trend.
+            # Prefix stops before the role: 8.3.8 has both
+            # designer-auth-token-scheduler-N and -worker-N, and the workers
+            # only appear once a Designer connects -- they were absent from
+            # the first capture off a freshly-booted gateway.
+            matchers.prefix("client-auth-token-"),
+            matchers.prefix("designer-auth-token-"),
+            matchers.prefix("internal-remembered-subjects-scheduler-"),
             matchers.exact("File Reaper"),
         ),
         "Logging appenders, file and certificate watchers, the service "
@@ -247,6 +284,7 @@ POOL_SPECS = [
             # Java 17. Present on 8.1.48, absent on 8.1.11's Java 11, and --
             # unlike GC Thread# -- it IS ThreadMXBean-visible.
             matchers.exact("Monitor Deflation Thread"),
+            matchers.prefix("Cleaner-"),  # 8.3.8 / Java 17
         ),
         "JIT compiler, reference handling and cleaners. The GC and VM "
         "matchers here never fire on a live sample -- ThreadMXBean does not "

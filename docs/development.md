@@ -106,14 +106,34 @@ Recorded here so they are not re-derived. Anything unverified says so.
 
 | Fact | Verified on |
 |---|---|
-| Container JRE has no `jstack`/`jcmd`; `kill -3` + `docker logs` works | 8.1.11, 8.1.48 |
-| `wrapper.log` is a symlink to `/dev/stdout` | 8.1.11, 8.1.48 |
-| JVM is a child of pid 1 (the wrapper), not pid 1 | 8.1.11, 8.1.48 |
+| Container JRE has no `jstack`/`jcmd`; `kill -3` + `docker logs` works | 8.1.11, 8.1.48, 8.3.8 |
+| `wrapper.log` is a symlink to `/dev/stdout` | 8.1.11, 8.1.48, 8.3.8 |
+| JVM is a child of pid 1 (the wrapper), not pid 1 | 8.1.11, 8.1.48, 8.3.8 |
 | `ThreadMXBean` omits GC/VM-internal threads (130 → 117) | 8.1.11 |
-| 8.1.11 runs OpenJDK 11; 8.1.48 runs OpenJDK 17 | both |
+| 13 VM-internal threads excluded on every gateway captured | all three |
+| OpenJDK 11 on 8.1.11; OpenJDK 17 on 8.1.48 and 8.3.8 | all three |
 | OPC-UA pool renamed `milo-*` → `opc-ua-*` | 8.1.11 vs 8.1.48 |
 | `gateway-shared-exec-engine-*` → `shared-worker-*` | 8.1.11 vs 8.1.48 |
+| 8.3 adds `single-executor-*`, `shared-scheduled-executor-*`, `Scheduler-<hash>-*`, `managed-tag-provider-*`, `Cleaner-*`, auth-token pools | 8.3.8 |
+| `designer-auth-token-worker-*` appears only once a Designer connects | 8.3.8 |
+| `Scheduler-<hash>-N` carries a per-boot hash — only the prefix is stable | 8.3.8 |
 | Project library layout `ignition/script-python/<pkg>/<mod>/code.py` | 8.1.11 only — **unconfirmed on 8.3** |
 | Gateway rescans project resources on a timer, up to several minutes | 8.1.11 only |
 
-The 8.3 rows are the open ones. They gate M6.
+The last two rows are the open ones. They gate M6.
+
+### Thread counts on an idle gateway
+
+Useful as a baseline when reading a trend. All three gateways were idle with
+no significant load:
+
+| | 8.1.11 | 8.1.48 | 8.3.8 |
+|---|---|---|---|
+| total | 117 | 105 | 101 |
+| webserver | 15 | 16 | 10 |
+| executor | 17 | 19 | 16 |
+| opcua | 13 | 12 | 19 |
+| platform | 26 | 30 | 21 |
+
+8.1.11 is the only one of the three with datasources configured, which is why
+it is the only one with non-zero `history`.
