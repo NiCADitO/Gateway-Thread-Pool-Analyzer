@@ -50,15 +50,34 @@ def _run(args):
 
 
 def java_pid(container):
-    """The gateway JVM's pid, which is not pid 1 -- that is the wrapper."""
+    """The gateway JVM's pid, which is not pid 1 -- that is the wrapper.
+
+    Matching on the RUNTIME PATH rather than on "/bin/java" anywhere in the
+    line. On 8.3.8 pid 1 is tini, and its own arguments contain
+    `wrapper.java.command=lib/runtime/jre/bin/java` -- so a naive substring
+    match returns pid 1. That happened to work, because tini forwards
+    signals to its child, but it is luck rather than correctness and it would
+    break on any image without a forwarding init.
+    """
     result = _run(["docker", "exec", container, "sh", "-c",
                    "ps -eo pid,args"])
     if result.returncode != 0:
         raise SystemExit("could not list processes in %s:\n%s"
                          % (container, result.stderr.strip()))
+
     for line in result.stdout.splitlines():
-        if "/bin/java" in line and "grep" not in line:
-            return line.split()[0]
+        if "grep" in line:
+            continue
+        fields = line.split(None, 1)
+        if len(fields) != 2:
+            continue
+        pid, args = fields
+        # The executable is the first token; anything later is an argument
+        # that merely mentions a java path.
+        executable = args.split()[0]
+        if executable.endswith("/bin/java") or executable == "java":
+            return pid
+
     raise SystemExit("no java process found in %s -- is the gateway running?"
                      % (container,))
 

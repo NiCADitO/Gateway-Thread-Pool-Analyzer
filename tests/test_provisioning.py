@@ -414,3 +414,36 @@ def test_folder_steps_do_not_gate_the_run():
     fake = RecordingTags(bad_names=["GatewayHealth", "Pools", "webserver"])
     result = provisioning.provision(PROVIDER, tag_system=fake)
     assert result.ok(), result.summary()
+
+
+# --- gateways with no historian -------------------------------------------
+
+def test_no_history_sentinel_creates_tags_without_historizing():
+    """A gateway with no tag historian is a real configuration.
+
+    The 8.3 lab gateway has no database connection at all. Its tags should
+    still exist and still carry live values.
+    """
+    fake = RecordingTags()
+    result = provisioning.provision(provisioning.NO_HISTORY, tag_system=fake)
+
+    assert result.ok(), result.summary()
+    assert result.historized is False
+    assert "NO HISTORY" in result.summary()
+    assert sorted(fake.created_paths()) == sorted(tagpaths.all_paths())
+    for path in tagpaths.all_paths():
+        assert "historyEnabled" not in fake.tag_at(path), path
+
+
+def test_blank_still_refuses_even_though_none_is_allowed():
+    """Unset must not silently mean 'no history wanted'.
+
+    Blank is what an unconfigured deployment looks like. If blank were
+    treated as NO_HISTORY, a typo in the provider name would produce 64 tags
+    that look historized and store nothing -- which is the exact failure this
+    whole module is built to make impossible.
+    """
+    fake = RecordingTags()
+    result = provisioning.provision("", tag_system=fake)
+    assert not result.ok()
+    assert fake.configured == []

@@ -92,6 +92,17 @@ COLLISION_IGNORE = "i"
 FOLDER = "Folder"
 ATOMIC = "AtomicTag"
 
+# Explicit opt-out for a gateway with no tag historian at all -- the 8.3 lab
+# gateway has no database connection, so this is a real configuration, not a
+# hypothetical. Tags are still created and still carry live values; they are
+# simply not historized.
+#
+# It has to be a deliberate sentinel rather than an empty string. Blank is
+# what an UNSET config looks like, and treating unset as "no history wanted"
+# is how you end up with 64 tags that look historized and store nothing.
+# Blank refuses; "NONE" proceeds knowingly.
+NO_HISTORY = "NONE"
+
 # History settings. Numbers justified against measured behaviour on the live
 # 8.1 gateway, not picked for feel:
 #
@@ -211,6 +222,10 @@ class ProvisionResult(object):
         # did not run, which is NOT the same as "found nothing missing".
         self.missing = None
         self.audit_error = ""
+        # False when NO_HISTORY was used. Surfaced in the summary so a
+        # gateway that is only carrying live values never looks like one
+        # that is trending.
+        self.historized = True
 
     def ok(self):
         if self.error:
@@ -256,8 +271,12 @@ class ProvisionResult(object):
         if not self.ok():
             return "provisioned with %d problem(s): %s" % (
                 len(self.problems()), " | ".join(self.problems()))
-        return "provisioned %d tags across %d folders, all %d verified" % (
-            self.tag_count(), len(self.steps), len(tagpaths.all_paths()))
+        suffix = ""
+        if not self.historized:
+            suffix = " (NO HISTORY -- live values only)"
+        return "provisioned %d tags across %d folders, all %d verified%s" % (
+            self.tag_count(), len(self.steps), len(tagpaths.all_paths()),
+            suffix)
 
 
 def _configure(target, base_path, tags, result, policy=COLLISION_OVERWRITE):
@@ -382,16 +401,19 @@ def provision(history_provider, tag_system=None):
 
     # Then the leaves, one flat list per folder so N tags in means N
     # qualities out and the mapping is unambiguous.
+    historize = history_provider != NO_HISTORY
+    result.historized = historize
+
     for key in taxonomy.spec_keys():
         members = []
         for member in tagpaths.UDT_MEMBERS:
-            members.append(leaf(member, tagpaths.DATATYPE_INT, True,
+            members.append(leaf(member, tagpaths.DATATYPE_INT, historize,
                                 history_provider))
         _configure(target, pools_base + "/" + key, members, result)
 
     gateway_leaves = []
     for name in tagpaths.GATEWAY_TAGS:
-        gateway_leaves.append(leaf(name, tagpaths.DATATYPE_INT, True,
+        gateway_leaves.append(leaf(name, tagpaths.DATATYPE_INT, historize,
                                    history_provider))
     _configure(target, base, gateway_leaves, result)
 
