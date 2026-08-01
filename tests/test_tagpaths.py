@@ -82,3 +82,35 @@ def test_format_report_renders(dump_81_11):
     text = snapshot.format_report(snap)
     assert "webserver" in text
     assert "117 total" in text
+
+
+# --- BlockedTotal ---------------------------------------------------------
+
+def test_blocked_total_is_the_sum_of_every_pool(dump_81_11):
+    """Derived from the same snapshot, so it cannot disagree with the pools.
+
+    A separately-probed total could drift out of step with the per-pool tags
+    by one sample, and then the tile and the chart tell different stories at
+    exactly the moment someone is trying to diagnose something.
+    """
+    snap = sampler.count(dump_81_11)
+    # Force some blocked threads across two different pools.
+    snap.pool("webserver").states["BLOCKED"] = 2
+    snap.pool("executor").states["BLOCKED"] = 3
+
+    paths, values = snapshot.flatten_for_write(snap)
+    by_path = dict(zip(paths, values))
+    assert by_path[tagpaths.gateway_tag(tagpaths.BLOCKED_TOTAL)] == 5
+
+
+def test_blocked_total_is_zero_on_a_healthy_gateway(dump_81_11):
+    snap = sampler.count(dump_81_11)
+    paths, values = snapshot.flatten_for_write(snap)
+    by_path = dict(zip(paths, values))
+    assert by_path[tagpaths.gateway_tag(tagpaths.BLOCKED_TOTAL)] == 0
+
+
+def test_blocked_total_is_historized():
+    """It is the tag you would alarm on, so it needs history behind it."""
+    assert tagpaths.gateway_tag(tagpaths.BLOCKED_TOTAL) in \
+        tagpaths.historized_paths()

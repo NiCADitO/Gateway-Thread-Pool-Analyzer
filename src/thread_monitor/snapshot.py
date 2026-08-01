@@ -122,6 +122,10 @@ def flatten_for_write(snap):
     values.append(_int_or_default(snap.daemon_threads, -1))
     paths.append(tagpaths.gateway_tag(tagpaths.DEADLOCKED_COUNT))
     values.append(_int_or_default(snap.deadlocked_count, -1))
+    # Derived from the pool counts in this same snapshot, so it cannot drift
+    # out of step with them the way a separate probe could.
+    paths.append(tagpaths.gateway_tag(tagpaths.BLOCKED_TOTAL))
+    values.append(snap.state_total("BLOCKED"))
 
     paths.append(tagpaths.diagnostic_tag(tagpaths.SAMPLE_DURATION_MS))
     values.append(_int_or_default(snap.sample_duration_ms, -1))

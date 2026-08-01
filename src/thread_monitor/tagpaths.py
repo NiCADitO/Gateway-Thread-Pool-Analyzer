@@ -84,7 +84,20 @@ PEAK_COUNT = "PeakCount"
 DAEMON_COUNT = "DaemonCount"
 DEADLOCKED_COUNT = "DeadlockedCount"
 
-GATEWAY_TAGS = [TOTAL_COUNT, PEAK_COUNT, DAEMON_COUNT, DEADLOCKED_COUNT]
+# Blocked threads across every pool, as one number.
+#
+# The per-pool Blocked tags say WHICH pool; this says WHETHER. That turns out
+# to be the more useful question most of the time: it is the one value worth
+# putting on a status tile and the one worth alarming on, and neither is
+# possible against twelve separate tags without an expression that has to be
+# rewritten every time a PoolSpec is added.
+#
+# Derived, not measured -- it is the sum of the twelve Pools/*/Blocked values
+# from the same sample, so it can never disagree with them.
+BLOCKED_TOTAL = "BlockedTotal"
+
+GATEWAY_TAGS = [TOTAL_COUNT, PEAK_COUNT, DAEMON_COUNT, DEADLOCKED_COUNT,
+                BLOCKED_TOTAL]
 
 SAMPLE_DURATION_MS = "SampleDurationMs"
 LAST_SAMPLE_TIME = "LastSampleTime"

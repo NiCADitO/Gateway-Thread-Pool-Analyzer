@@ -181,7 +181,7 @@ def build(view, provider, drv):
     # small vertical range makes a 0 -> 2 change enormous rather than a
     # wobble lost against a count axis that runs to 120.
     pos = dict(chart.get("position") or {})
-    top = pos.get("y", 55)
+    top = max(pos.get("y", 55), TILE_TOP + CAPTION_HEIGHT + VALUE_HEIGHT + 18)
     width = pos.get("width", 1222)
     total = pos.get("height", 592)
     gap = 12
@@ -199,7 +199,135 @@ def build(view, provider, drv):
     kids = parent["children"]
     kids.insert(kids.index(chart) + 1, blocked)
 
-    return len(count_pens) + len(blocked_pens)
+    tiles, warning = build_tiles(root, "[default]GatewayHealth/Threads/")
+    return len(count_pens) + len(blocked_pens), tiles, warning
+
+
+LABEL = "ia.display.label"
+
+# Used only when a view has no label to clone. NOT invented -- every part of
+# this was verified against the gateway's own Perspective module:
+#
+#   the component id `ia.display.label` is registered in
+#     perspective-gateway/mounted/js/PerspectiveComponents*.js
+#   the node shape {version, type, props, meta, position} appears verbatim in
+#     the module's own example view, gateway/comm/dateLabelProject.json
+#   the binding keys mode/direct/fallbackDelay/publishInitial/tag are the
+#     constants in common/config/constants/TagBindingConstants
+#
+# Checked in the 2.1.11 module that ships with 8.1.11, i.e. the OLDER of the
+# two gateways -- so it is not a shape borrowed from 8.3 and hoped for.
+LABEL_TEMPLATE = {
+    "version": 0,
+    "type": LABEL,
+    "props": {},
+    "meta": {"name": "label"},
+    "position": {"x": 0, "y": 0, "width": 100, "height": 30},
+}
+
+# The four numbers worth reading before you look at any chart. Order is
+# left-to-right; `alarm` marks the ones that are zero on a healthy gateway and
+# therefore mean something the instant they are not.
+TILES = [
+    ("TotalCount", "THREADS", False),
+    ("Pools/webserver/Count", "WEBSERVER", False),
+    ("BlockedTotal", "BLOCKED", True),
+    ("DeadlockedCount", "DEADLOCKED", True),
+]
+
+TILE_TOP = 34
+TILE_WIDTH = 150
+TILE_GAP = 14
+CAPTION_HEIGHT = 16
+VALUE_HEIGHT = 34
+
+
+def tag_label(template, name, tag_path, x, y, width, height, style):
+    """A label bound to a tag, cloned from one the Designer wrote.
+
+    The binding shape here is copied verbatim from the Designer's own output
+    -- `{"type": "tag", "config": {"mode": "direct", "tagPath": ...}}` -- and
+    only the tagPath changes.
+    """
+    node = copy.deepcopy(template)
+    node["meta"] = {"name": name}
+    node["position"] = {"x": x, "y": y, "width": width, "height": height}
+    node["propConfig"] = {
+        "props.text": {
+            "binding": {
+                "type": "tag",
+                "config": {
+                    "fallbackDelay": 2.5,
+                    "mode": "direct",
+                    "publishInitial": False,
+                    "tagPath": tag_path,
+                },
+            }
+        }
+    }
+    node["props"] = {"style": style}
+    return node
+
+
+def static_label(template, name, text, x, y, width, height, style):
+    node = copy.deepcopy(template)
+    node["meta"] = {"name": name}
+    node["position"] = {"x": x, "y": y, "width": width, "height": height}
+    node.pop("propConfig", None)
+    node["props"] = {"text": text, "style": style}
+    return node
+
+
+def build_tiles(root, provider_root):
+    """Replace whatever labels exist with a clean, complete tile row.
+
+    Rebuilt rather than patched: the Designer leaves labels wherever they were
+    dropped, and a row of stat tiles only reads as a row if the spacing is
+    uniform. Any label already in the view is used as the clone template so
+    the node shape stays the Designer's, not mine.
+    """
+    labels = []
+    for child in root.get("children") or []:
+        if child.get("type") == LABEL:
+            labels.append(child)
+    if labels:
+        # Prefer a label the Designer actually wrote in THIS view -- it is
+        # the most authoritative shape available for this gateway version.
+        template = labels[0]
+    else:
+        template = copy.deepcopy(LABEL_TEMPLATE)
+
+    for stale in labels:
+        root["children"].remove(stale)
+
+    made = []
+    x = 24
+    for tag, caption, is_alarm in TILES:
+        # Muted caption, loud value. The caption is read once; the number is
+        # read every time.
+        made.append(static_label(
+            template, "cap_" + caption, caption, x, TILE_TOP,
+            TILE_WIDTH, CAPTION_HEIGHT,
+            {"fontSize": "11px", "letterSpacing": "0.09em",
+             "color": "#7D8796", "fontWeight": 600}))
+        value_style = {"fontSize": "28px", "fontWeight": 650,
+                       "color": "#E6EBF2"}
+        if is_alarm:
+            # Amber, not red. These sit at zero almost always, and a
+            # permanently-red tile is one people learn to stop seeing.
+            # Colour-on-value would be better still and needs an expression
+            # binding, whose shape is not observed here -- see the module
+            # docstring.
+            value_style["color"] = "#D98C3F"
+        made.append(tag_label(
+            template, "val_" + caption, provider_root + tag,
+            x, TILE_TOP + CAPTION_HEIGHT, TILE_WIDTH, VALUE_HEIGHT,
+            value_style))
+        x = x + TILE_WIDTH + TILE_GAP
+
+    # Tiles first so they render above the charts in the coord container.
+    root["children"] = made + list(root["children"])
+    return len(TILES), None
 
 
 def find_parent(node, target):
@@ -261,11 +389,13 @@ def main():
     view, remote = read_view(args.container, args.project, args.view)
     backup(args.container, remote)
 
-    pens = build(view, args.provider, args.drv)
+    pens, tiles, warning = build(view, args.provider, args.drv)
     write_view(args.container, remote, view)
 
-    print("%s/%s: %d pens across 2 panels, provider=%s drv=%s"
-          % (args.container, args.view, pens, args.provider, args.drv))
+    print("%s/%s: %d pens across 2 panels, %d tiles, provider=%s drv=%s"
+          % (args.container, args.view, pens, tiles, args.provider, args.drv))
+    if warning:
+        print("  WARNING: %s" % (warning,))
     print("  original kept at %s.orig" % (remote,))
 
     if args.restart:

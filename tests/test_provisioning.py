@@ -143,12 +143,19 @@ def test_every_configure_call_sends_a_flat_list():
 
 # --- history --------------------------------------------------------------
 
-def test_history_is_on_for_the_64_trended_tags_and_off_for_diagnostics():
+def test_history_is_on_for_the_metric_tags_and_off_for_diagnostics():
     fake = RecordingTags()
     provisioning.provision(PROVIDER, tag_system=fake)
 
     historized = set(tagpaths.historized_paths())
-    assert len(historized) == 64
+    # Derived, not hardcoded: every pool member plus every gateway counter.
+    # A literal here has to be edited every time a PoolSpec or a gateway tag
+    # is added, and the edit is indistinguishable from papering over a bug.
+    expected = (len(taxonomy.POOL_SPECS) * len(tagpaths.UDT_MEMBERS)
+                + len(tagpaths.GATEWAY_TAGS))
+    assert len(historized) == expected
+    assert len(historized) == len(tagpaths.all_paths()) - len(
+        tagpaths.DIAGNOSTIC_TAGS)
 
     for path in tagpaths.all_paths():
         tag = fake.tag_at(path)
