@@ -158,8 +158,55 @@ tag paths are identical, so it is only `drvid` that tells them apart.
 
 ## The Power Chart
 
-A Designer step, deliberately: `view.json` is one of the formats CLAUDE.md #5
-forbids synthesizing, because a broken one is not diagnosable from the file.
+Build the view **once** in the Designer with a Power Chart and any single pen
+on it, then normalise it:
+
+```bash
+python scripts/build_view.py --container 81-GW1-1 --view GwThreadingTrends \
+  --provider PostgresDBConnection --drv gw1
+
+python scripts/build_view.py --container 81-GW2-1 --view GWThreadTrends \
+  --provider PostgreSQLHistorian --drv gw2 --restart
+```
+
+That rewrites the pens into two panels — six pool counts, and the same six
+pools' `Blocked` below — with stepped interpolation and MinMax aggregation. It
+keeps the Designer's original at `view.json.orig`.
+
+**Why it edits rather than generates.** `view.json` is one of the formats
+CLAUDE.md #5 forbids synthesizing. The script only ever changes keys the
+Designer already wrote, and the values it writes were read out of the
+Perspective module's own JS bundle rather than guessed:
+
+- `interpolation` — the real curve list is `curveLinear | curveStep |
+  curveStepAfter | curveStepBefore | curveBasis | curveCardinal* |
+  curveMonotoneX | curveMonotoneY | curveNatural`.
+- `aggregateMode` — `Default | Average | MinMax | LastValue | SimpleAverage |
+  Sum | Minimum | Maximum | DurationOn | DurationOff | ...`.
+
+**Blocked gets its own chart, not its own axis.** `axes` and `plots` are real
+sibling props — the bundle lists them as settings categories — but neither
+appears in a Designer-saved view until you configure one, so their object
+shape was never observed. Rather than reconstruct it, the second panel is a
+*clone* of the chart node the Designer wrote. Same known-good shape, different
+pens and position. Visually it is the better outcome anyway: a short fixed
+panel makes 0 → 2 unmissable, where on a shared axis running to 120 it is a
+wobble on the floor.
+
+### What the script fixes, and why each mattered
+
+| Before | After | Why |
+|---|---|---|
+| all pens on one axis | counts and Blocked in separate panels | `totalcount` (~120) flattened everything; Blocked was welded to the X axis and invisible |
+| `totalcount`, `peakcount` on the trend | removed | a line that is always ~120 sets the axis for everything else. Put it in a text tile |
+| `curveLinear` | `curveStepAfter` | on-change history with a 5-min floor means adjacent points can be minutes apart; linear invents a ramp between them |
+| `aggregateMode: default` | `MinMax` | over a week Ignition down-samples, and averaging erases the spikes you are looking for |
+| pens named `count`, `blocked` | named per pool | the legend did not say which pool |
+| 8.3 pens bound to `/drv:gw1` | `/drv:gw2` | both gateways write to the same database, so 8.3's chart was plotting 8.1's threads |
+
+That last one is the one to watch for. Two gateways sharing a historian have
+byte-identical tag paths, so a wrong `drv` produces a chart full of plausible,
+completely unrelated data.
 
 Perspective → new view → **Power Chart**. In the chart's tag browser add:
 

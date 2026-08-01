@@ -1,0 +1,279 @@
+"""Normalise a Designer-made Perspective view into the dashboard layout.
+
+CLAUDE.md #5 says never invent an Ignition file format -- build one by hand in
+the Designer and have code EDIT that known-good shape. That is exactly what
+this does. It reads a view.json the Designer wrote, rewrites the parts whose
+shape is already present in the file, and writes it back. It never introduces
+a property whose schema has not been observed.
+
+WHAT IT CHANGES, and why each one is safe:
+
+  pens[].data.source          string, already present. Only the /drv: segment
+                              and the tag path change.
+  pens[].data.aggregateMode   "MinMax". Verified value: the AggregateMode enum
+                              in the module's own JS bundle is
+                              Default|Average|MinMax|LastValue|SimpleAverage|
+                              Sum|Minimum|Maximum|DurationOn|DurationOff...
+  pens[].display.interpolation "curveStepAfter". Verified from the same bundle:
+                              curveLinear|curveStep|curveStepAfter|
+                              curveStepBefore|curveBasis|curveCardinal*|
+                              curveMonotoneX|curveMonotoneY|curveNatural.
+  pens[].display.styles.*     colours, already present at every style key.
+  pens[].name                 string, already present.
+
+WHAT IT DOES NOT DO: add `axes` or `plots` arrays. Those are real sibling
+props -- the bundle lists Axes|Pens|Plots|Columns as settings categories --
+but neither appears in a Designer-saved view until configured, so their object
+shape is unobserved here. Rather than reconstruct it from the Designer's UI
+code, the second panel is made by CLONING the existing power-chart node and
+giving it different pens and a different position. Both `position` and `pens`
+are keys the file already carries, so nothing is guessed.
+
+Consequence worth knowing: Blocked gets its own CHART rather than its own
+axis on the same chart. Visually that is the same outcome -- and arguably
+better, since a separate panel with a fixed small height makes a spike from 0
+to 2 unmissable instead of a wobble near the baseline.
+
+Usage:
+    python scripts/build_view.py --container 81-GW1-1 --view GwThreadingTrends \\
+        --provider PostgresDBConnection --drv gw1
+    python scripts/build_view.py --container 81-GW2-1 --view GWThreadTrends \\
+        --provider PostgreSQLHistorian --drv gw2 --restart
+
+Runs on CPython 3 on the host -- tooling, not gateway code.
+"""
+import argparse
+import copy
+import json
+import os
+import subprocess
+import sys
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_DIR = ("/usr/local/bin/ignition/data/projects/%s/"
+               "com.inductiveautomation.perspective/views")
+
+POWERCHART = "ia.chart.powerchart"
+
+# Six pools, not twelve. A legend with twelve entries is a reading exercise;
+# the per-pool table answers "which pool" far better than a twelfth colour.
+#
+# webserver is the hero: it is the series that correlates with a human saying
+# the gateway feels slow. Everything else is deliberately lower-contrast so
+# the eye lands on webserver first. Colours are muted rather than saturated
+# because saturation here is reserved -- see BLOCKED_PANEL.
+SERIES = [
+    ("webserver", "#5B9BD5"),
+    ("executor", "#C08457"),
+    ("opcua", "#6A9955"),
+    ("scheduler", "#9E7FB8"),
+    ("history", "#C9A227"),
+    ("platform", "#7F8894"),
+]
+
+TAG_ROOT = "gatewayhealth/threads"
+
+# Verified against the AggregateMode enum in the Perspective module's own JS.
+#
+# MinMax, not Average. Ignition down-samples on a wide range, and averaging is
+# exactly wrong for this data: a 60-second webserver spike averaged into an
+# hour bucket vanishes. MinMax keeps the envelope, so a spike survives zooming
+# out to a week -- which is the whole point of historizing it.
+AGGREGATE_MODE = "MinMax"
+
+# Verified against the same bundle's curve list.
+#
+# The history is stored OnChange with a 5-minute floor, so two adjacent points
+# can be minutes apart. curveLinear draws a diagonal between them, inventing
+# values that never existed and turning a step change into a gentle slope.
+# StepAfter holds the value until the next sample, which is what actually
+# happened.
+INTERPOLATION = "curveStepAfter"
+
+
+def source_for(provider, drv, tag):
+    """A tag-history pen source.
+
+    Format taken verbatim from the Designer-written pens already in the file:
+        histprov:<provider>:/drv:<gatewayName>:<tagProvider>:/tag:<path>
+    """
+    return "histprov:%s:/drv:%s:default:/tag:%s" % (provider, drv, tag)
+
+
+def restyle(pen, color):
+    """Recolour every style variant a pen carries.
+
+    Perspective writes normal/highlighted/muted/selected, each with its own
+    fill and stroke and its own opacity. Setting only `normal` leaves a pen
+    that changes colour when you hover it.
+    """
+    styles = pen["display"]["styles"]
+    for state in styles:
+        for part in ("fill", "stroke"):
+            if part in styles[state]:
+                styles[state][part]["color"] = color
+    return pen
+
+
+def make_pen(template, name, tag, color, provider, drv):
+    pen = copy.deepcopy(template)
+    pen["name"] = name
+    pen["data"]["source"] = source_for(provider, drv, tag)
+    pen["data"]["aggregateMode"] = AGGREGATE_MODE
+    pen["display"]["interpolation"] = INTERPOLATION
+    pen["axis"] = ""
+    pen["plot"] = 0
+    pen["enabled"] = True
+    pen["visible"] = True
+    restyle(pen, color)
+    return pen
+
+
+def find_chart(node):
+    if node.get("type") == POWERCHART:
+        return node
+    for child in node.get("children") or []:
+        found = find_chart(child)
+        if found is not None:
+            return found
+    return None
+
+
+def build(view, provider, drv):
+    root = view["root"]
+    chart = find_chart(root)
+    if chart is None:
+        raise SystemExit("no %s in this view -- add one in the Designer first"
+                         % (POWERCHART,))
+
+    pens = chart["props"].get("pens")
+    if not pens:
+        raise SystemExit("the power chart has no pens to use as a template")
+    template = pens[0]
+
+    # --- panel 1: pool counts -------------------------------------------
+    count_pens = []
+    for name, color in SERIES:
+        count_pens.append(make_pen(
+            template, name, "%s/pools/%s/count" % (TAG_ROOT, name),
+            color, provider, drv))
+    chart["props"]["pens"] = count_pens
+
+    # --- panel 2: blocked, cloned from the same known-good node ----------
+    #
+    # Same six pools, same six colours. Matching the colours is deliberate:
+    # a red spike would tell you something is blocked, but the SAME colour as
+    # the count panel tells you WHICH pool without reading a legend.
+    blocked = copy.deepcopy(chart)
+    blocked_pens = []
+    for name, color in SERIES:
+        blocked_pens.append(make_pen(
+            template, name + " blocked",
+            "%s/pools/%s/blocked" % (TAG_ROOT, name),
+            color, provider, drv))
+    blocked["props"]["pens"] = blocked_pens
+    if "meta" in blocked:
+        blocked["meta"] = dict(blocked["meta"])
+        blocked["meta"]["name"] = "blockedChart"
+
+    # Blocked gets a short fixed panel. On a healthy gateway it is a flat line
+    # on the floor, so it costs little screen; when it lifts off zero, the
+    # small vertical range makes a 0 -> 2 change enormous rather than a
+    # wobble lost against a count axis that runs to 120.
+    pos = dict(chart.get("position") or {})
+    top = pos.get("y", 55)
+    width = pos.get("width", 1222)
+    total = pos.get("height", 592)
+    gap = 12
+    blocked_height = 170
+    chart["position"] = dict(pos, y=top, width=width,
+                             height=max(220, total - blocked_height - gap))
+    blocked["position"] = dict(pos, y=top + max(220, total - blocked_height
+                                                - gap) + gap,
+                               width=width, height=blocked_height)
+
+    # Insert the clone as a sibling of the original.
+    parent = find_parent(root, chart)
+    if parent is None:
+        raise SystemExit("could not find the chart's parent container")
+    kids = parent["children"]
+    kids.insert(kids.index(chart) + 1, blocked)
+
+    return len(count_pens) + len(blocked_pens)
+
+
+def find_parent(node, target):
+    for child in node.get("children") or []:
+        if child is target:
+            return node
+        found = find_parent(child, target)
+        if found is not None:
+            return found
+    return None
+
+
+def read_view(container, project, view_name):
+    remote = "%s/%s/view.json" % (PROJECT_DIR % (project,), view_name)
+    result = subprocess.run(["docker", "exec", container, "sh", "-c",
+                             "cat '%s'" % (remote,)],
+                            capture_output=True, text=True, errors="replace")
+    if result.returncode != 0 or not result.stdout.strip():
+        raise SystemExit("could not read %s from %s:\n%s"
+                         % (remote, container, result.stderr.strip()))
+    return json.loads(result.stdout), remote
+
+
+def write_view(container, remote, view):
+    payload = json.dumps(view, indent=2) + "\n"
+    # Streamed, not `docker cp`: Docker Desktop for Windows rewrites the
+    # destination path and the copy fails.
+    proc = subprocess.Popen(["docker", "exec", "-i", container, "sh", "-c",
+                             "cat > '%s'" % (remote,)],
+                            stdin=subprocess.PIPE)
+    proc.communicate(payload.encode("utf-8"))
+    if proc.returncode != 0:
+        raise SystemExit("failed writing %s" % (remote,))
+
+
+def backup(container, remote):
+    """Keep the Designer's original next to it. It is the known-good shape."""
+    subprocess.check_call(["docker", "exec", container, "sh", "-c",
+                           "test -f '%s.orig' || cp '%s' '%s.orig'"
+                           % (remote, remote, remote)])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--container", required=True)
+    parser.add_argument("--view", required=True,
+                        help="view name, e.g. GwThreadingTrends")
+    parser.add_argument("--provider", required=True,
+                        help="tag history provider name")
+    parser.add_argument("--drv", required=True,
+                        help="gateway system name as it appears in sqlth_drv")
+    parser.add_argument("--project",
+                        default="Gateway_Thread_Pool_Analyzer_and_Historizer")
+    parser.add_argument("--restart", action="store_true",
+                        help="restart the gateway afterwards (needed on 8.3, "
+                             "which does not watch the project directory)")
+    args = parser.parse_args()
+
+    view, remote = read_view(args.container, args.project, args.view)
+    backup(args.container, remote)
+
+    pens = build(view, args.provider, args.drv)
+    write_view(args.container, remote, view)
+
+    print("%s/%s: %d pens across 2 panels, provider=%s drv=%s"
+          % (args.container, args.view, pens, args.provider, args.drv))
+    print("  original kept at %s.orig" % (remote,))
+
+    if args.restart:
+        subprocess.check_call(["docker", "restart", args.container],
+                              stdout=subprocess.DEVNULL)
+        print("  restarted (8.3 loads project resources at boot only)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
