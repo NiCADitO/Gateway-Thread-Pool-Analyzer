@@ -400,7 +400,7 @@ def test_folders_use_ignore_and_leaves_use_overwrite():
     """Overwrite on a FOLDER has undocumented blast radius.
 
     'Completely replaces a tag's configuration' is not defined for a folder,
-    so re-provisioning could plausibly take all twelve pools and their
+    so re-provisioning could plausibly take all fourteen pools and their
     history with it. A folder is just a name; Ignore costs nothing.
     """
     fake = RecordingTags()

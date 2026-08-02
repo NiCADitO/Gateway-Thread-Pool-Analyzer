@@ -1,0 +1,131 @@
+# Live thread dump from an Ignition gateway.
+#
+# Gateway:  container 81-GW1-1
+# JVM:      OpenJDK 64-Bit Server VM (11.0.11+9-LTS mixed mode)
+# Captured: scripts/discover_threads.py
+#
+# 119 threads. This is exactly the set ThreadMXBean.getAllThreadIds()
+# reports. The dump also held 13 VM-internal thread(s) with no
+# java.lang.Thread.State line, which ThreadMXBean does not report;
+# they are deliberately excluded. See scripts/discover_threads.py.
+#
+# Format: <thread name>\t<Thread.State>
+AsyncAppender-Worker-DBAsync	WAITING
+AsyncAppender-Worker-SysoutAsync	WAITING
+C1 CompilerThread0	RUNNABLE
+C2 CompilerThread0	RUNNABLE
+Common-Cleaner	TIMED_WAITING
+Connection evictor	TIMED_WAITING
+Connector-Scheduler-2359e043-1	TIMED_WAITING
+DefaultDispatcher-worker-1	TIMED_WAITING
+DefaultDispatcher-worker-2	TIMED_WAITING
+DefaultDispatcher-worker-3	TIMED_WAITING
+DestroyJavaVM	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+Finalizer	WAITING
+ForkJoinPool.commonPool-worker-3	WAITING
+HSQLDB Timer @2e39d88b	TIMED_WAITING
+HttpClient-1-SelectorManager	RUNNABLE
+Reference Handler	RUNNABLE
+Service Thread	RUNNABLE
+Session-HouseKeeper-5c762d67-1	TIMED_WAITING
+Session-Scheduler-5dbe1473-1	TIMED_WAITING
+Signal Dispatcher	RUNNABLE
+Sweeper thread	RUNNABLE
+Timer-0	TIMED_WAITING
+Wicket-PageSavingThread	TIMED_WAITING
+Wrapper-Connection	RUNNABLE
+Wrapper-Control-Event-Monitor	TIMED_WAITING
+WrapperSimpleAppMain	WAITING
+catapult-filemonitor	TIMED_WAITING
+certificate-store-watcher	WAITING
+certificate-store-watcher	WAITING
+cron4j::scheduler[0d8beaf964ac74a52406061d0000019fbf2b1e78291b792d]::timer[0d8beaf964ac74a52406061d0000019fbf2b1e78142e4493]	TIMED_WAITING
+cron4j::scheduler[0d8beaf964ac74a573ab654a0000019fbfcea5603d46aa1f]::timer[0d8beaf964ac74a573ab654a0000019fbfcea560395e5400]	TIMED_WAITING
+cron4j::scheduler[reporting]::timer[0d8beaf964ac74a52406061d0000019fbf2b26547a91d6a9]	TIMED_WAITING
+cron4j::scheduler[taskmanager]::timer[0d8beaf964ac74a52406061d0000019fbf2b2258399cc51f]	TIMED_WAITING
+gateway-db-connection-validator-1	TIMED_WAITING
+gateway-db-connection-validator-2	WAITING
+gateway-gn-svcmgr-0	TIMED_WAITING
+gateway-log-monitoring-session-reaper	TIMED_WAITING
+gateway-logging-sqlite-appender	TIMED_WAITING
+gateway-performance-clockdrift-detector	TIMED_WAITING
+gateway-performance-metric-history-1	TIMED_WAITING
+gateway-script-shared-timer-[Gateway_Thread_Pool_Analyzer_and_Historizer]-1	TIMED_WAITING
+gateway-scripts-pylib-notifier	WAITING
+gateway-scripts-pylib-watcher	WAITING
+gateway-shared-exec-engine-1	WAITING
+gateway-shared-exec-engine-10	WAITING
+gateway-shared-exec-engine-11	WAITING
+gateway-shared-exec-engine-12	WAITING
+gateway-shared-exec-engine-2	WAITING
+gateway-shared-exec-engine-3	TIMED_WAITING
+gateway-shared-exec-engine-4	WAITING
+gateway-shared-exec-engine-5	WAITING
+gateway-shared-exec-engine-6	WAITING
+gateway-shared-exec-engine-7	WAITING
+gateway-shared-exec-engine-8	WAITING
+gateway-shared-exec-engine-9	WAITING
+gateway-storeforward-pipeline[MSSQLDB_Connection]-engine[CacheStorage]	TIMED_WAITING
+gateway-storeforward-pipeline[MSSQLDB_Connection]-engine[PrimarySFEngine]	TIMED_WAITING
+gateway-storeforward-pipeline[MySQLDB_Connection]-engine[CacheStorage]	TIMED_WAITING
+gateway-storeforward-pipeline[MySQLDB_Connection]-engine[PrimarySFEngine]	TIMED_WAITING
+gateway-storeforward-pipeline[PostgresDBConnection]-engine[CacheStorage]	TIMED_WAITING
+gateway-storeforward-pipeline[PostgresDBConnection]-engine[PrimarySFEngine]	TIMED_WAITING
+gateway-storeforward-pipeline[TestDBPostgres]-engine[CacheStorage]	TIMED_WAITING
+gateway-storeforward-pipeline[TestDBPostgres]-engine[PrimarySFEngine]	TIMED_WAITING
+gateway.tags.subscriptionmodel-1	WAITING
+milo-netty-event-loop-0	RUNNABLE
+milo-netty-event-loop-1	RUNNABLE
+milo-netty-event-loop-2	RUNNABLE
+milo-netty-event-loop-3	RUNNABLE
+milo-netty-event-loop-4	RUNNABLE
+milo-netty-wheel-timer	TIMED_WAITING
+milo-shared-scheduled-executor-0	TIMED_WAITING
+milo-shared-scheduled-executor-1	WAITING
+milo-shared-scheduled-executor-2	WAITING
+milo-shared-scheduled-executor-3	TIMED_WAITING
+milo-shared-thread-pool-112	TIMED_WAITING
+milo-shared-thread-pool-113	TIMED_WAITING
+milo-shared-thread-pool-114	TIMED_WAITING
+mysql-cj-abandoned-connection-cleanup	TIMED_WAITING
+perspective-scheduler-1	TIMED_WAITING
+perspective-worker-100	TIMED_WAITING
+perspective-worker-88	TIMED_WAITING
+perspective-worker-89	TIMED_WAITING
+perspective-worker-97	TIMED_WAITING
+perspective-worker-98	TIMED_WAITING
+perspective-worker-99	TIMED_WAITING
+platform-executor-154	TIMED_WAITING
+platform-executor-155	TIMED_WAITING
+platform-scheduled-executor-1	WAITING
+platform-scheduled-executor-2	TIMED_WAITING
+platform-scheduled-executor-3	TIMED_WAITING
+platform-scheduled-executor-4	WAITING
+tag-group-manager	TIMED_WAITING
+tag-group-manager	TIMED_WAITING
+tag-provider-System	WAITING
+tag-provider-default	WAITING
+tag-provider-subs-System	WAITING
+tag-provider-subs-default	WAITING
+tags-history-1	TIMED_WAITING
+webserver-1812	TIMED_WAITING
+webserver-2006	TIMED_WAITING
+webserver-2124	RUNNABLE
+webserver-2125	TIMED_WAITING
+webserver-2179	TIMED_WAITING
+webserver-2251	RUNNABLE
+webserver-2311	TIMED_WAITING
+webserver-2348	TIMED_WAITING
+webserver-2367	TIMED_WAITING
+webserver-2382	TIMED_WAITING
+webserver-30-acceptor-0@788ca69c-ServerConnector@2359e043{HTTP/1.1, (http/1.1)}{0.0.0.0:8088}	RUNNABLE
+webserver-31	RUNNABLE
+webserver-32	RUNNABLE
+webserver-33-acceptor-0@112116d1-ServerConnector@2d862f78{SSL, (ssl, http/1.1)}{0.0.0.0:8060}	RUNNABLE

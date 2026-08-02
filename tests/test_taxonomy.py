@@ -58,12 +58,47 @@ def test_no_spec_is_dead_across_the_whole_corpus(all_dumps):
                 claimed.add(entry.key)
 
     silent = []
-    for key in taxonomy.spec_keys():
-        if key == taxonomy.OTHER_KEY:
+    for spec in taxonomy.POOL_SPECS:
+        if spec.key == taxonomy.OTHER_KEY:
             continue
-        if key not in claimed:
-            silent.append(key)
+        # A CONSTANT spec is expected to be silent here -- that is the whole
+        # reason it is marked. Neither lab gateway runs alarm pipelines or has
+        # a field device attached, so `alarming` and `drivers` claim nothing.
+        # Failing the build for them would push someone to delete two buckets
+        # that a real gateway needs.
+        if spec.evidence == taxonomy.EVIDENCE_CONSTANT:
+            continue
+        if spec.key not in claimed:
+            silent.append(spec.key)
     assert silent == [], silent
+
+
+def test_constant_only_specs_name_their_source(all_dumps):
+    """A CONSTANT spec has to say where its names came from, and stay honest.
+
+    Two rules, and the second is the one that matters:
+
+    1. Its `why` must name the class the literals were read out of, so the
+       claim is re-checkable against the jars.
+    2. It must claim NOTHING on any dump we have. If it starts matching real
+       threads, the evidence is no longer constant-only -- it has been seen
+       live, and leaving the marker on would exempt it from the dead-spec
+       check above for no reason.
+    """
+    claimed = set()
+    for pairs in all_dumps.values():
+        snap = sampler.count(pairs)
+        for entry in snap.pools:
+            if entry.total > 0:
+                claimed.add(entry.key)
+
+    for spec in taxonomy.POOL_SPECS:
+        if spec.evidence != taxonomy.EVIDENCE_CONSTANT:
+            continue
+        assert "not seen live" in spec.why, spec.key
+        assert spec.key not in claimed, (
+            "%s is marked EVIDENCE_CONSTANT but now matches real threads -- "
+            "promote it to EVIDENCE_DUMP" % (spec.key,))
 
 
 def test_version_specific_prefixes_are_both_live(all_dumps):

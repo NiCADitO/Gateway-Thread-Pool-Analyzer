@@ -1,4 +1,4 @@
-"""Create the 71 tags this project writes to.
+"""Create the 81 tags this project writes to.
 
 Every API detail used here was read out of the gateways' OWN JARS by Jython
 reflection inside the containers, not from documentation -- see stubs.py. That
@@ -10,7 +10,7 @@ dropped -- no error, no bad QualityCode -- and the trend is empty hours later.
 THREE DESIGN DECISIONS, and why.
 
 1. FLAT TAGS, NOT A UDT.
-   The original plan called for a ThreadPool UDT with 12 instances, to keep
+   The original plan called for a ThreadPool UDT with 14 instances, to keep
    history settings in one place. Reflection showed that UDT definitions live
    under a reserved `_types_` folder and that instances carry a typeId
    relative to it -- but the exact dict shape for a definition, and whether
@@ -20,7 +20,7 @@ THREE DESIGN DECISIONS, and why.
    The UDT's whole benefit was "history configured once". This code generates
    the history block once in Python and applies it to every tag, so that
    benefit is already had without depending on any unverified semantics.
-   Adding a 13th pool is still zero manual work: it comes from
+   Adding a 15th pool is still zero manual work: it comes from
    taxonomy.POOL_SPECS like everything else.
 
 2. ONE `configure` CALL PER FOLDER, WITH A FLAT LIST OF LEAVES.
@@ -37,21 +37,21 @@ THREE DESIGN DECISIONS, and why.
    generously.
 
    a) The QualityCodes from `configure`, one per tag, inspected individually.
-   b) `audit()`, which asks `system.tag.exists(path)` for all 71 paths.
+   b) `audit()`, which asks `system.tag.exists(path)` for all 81 paths.
       Verified by reflection on both gateways. This is a SECOND OPINION: (a)
       says what configure believed it did, (b) says what the provider
       actually holds. It fails closed -- if the audit cannot run, ok() is
       False, because "could not check" must never read as "checked and fine".
    c) The timer's own next sample, which was already working before any of
-      this existed: it logs `71 of 71 writes rejected` before provisioning
-      and `71 tags written` after.
+      this existed: it logs `81 of 81 writes rejected` before provisioning
+      and `81 tags written` after.
 
    History is proven more directly still, by rows appearing in the historian
    database. Nothing here is asserted on faith.
 
    Note (b) must never be done by WRITING a probe value. An earlier design
    proposed exactly that, which would have scribbled the -1 "probe failed"
-   sentinel into all 65 live metric tags on every provisioning run --
+   sentinel into all 75 live metric tags on every provisioning run --
    corrupting the very signal this project exists to produce.
 
 Jython 2.7: no f-strings, no comprehensions, bare except only.
@@ -82,7 +82,7 @@ COLLISION_OVERWRITE = "o"
 # Overwrite is documented as "completely replaces a tag's configuration".
 # What that means for a FOLDER -- whether its children survive -- is nowhere
 # in the shipped documentation. Re-provisioning with 'o' on the Pools folder
-# therefore risks taking all twelve pools and their history configuration
+# therefore risks taking all fourteen pools and their history configuration
 # with it, and the symptom would be a chart that silently stops.
 #
 # A folder has no configuration worth replacing anyway: it is a name. So
@@ -99,7 +99,7 @@ ATOMIC = "AtomicTag"
 #
 # It has to be a deliberate sentinel rather than an empty string. Blank is
 # what an UNSET config looks like, and treating unset as "no history wanted"
-# is how you end up with 65 tags that look historized and store nothing.
+# is how you end up with 75 tags that look historized and store nothing.
 # Blank refuses; "NONE" proceeds knowingly.
 NO_HISTORY = "NONE"
 
@@ -351,12 +351,12 @@ def _is_good(quality):
 
 
 def provision(history_provider, tag_system=None):
-    """Create every tag, with history on the 65 that are trended.
+    """Create every tag, with history on the 75 that are trended.
 
     `history_provider` is the name of the tag history provider to write to --
     the same name that appears in the gateway's Tag History Providers list.
     Required: the property defaults to "" and a blank one is not known to
-    store anything, so provisioning refuses rather than creating 65 tags that
+    store anything, so provisioning refuses rather than creating 75 tags that
     look historized and silently are not.
     """
     result = ProvisionResult()
@@ -418,7 +418,7 @@ def provision(history_provider, tag_system=None):
     # PoolTable rides in the same call -- same base path, so one configure
     # still means N tags in, N qualities out. It is NOT historized regardless
     # of `historize`: the historian stores scalars, and every number in this
-    # dataset is already one of the 65 historized tags it was assembled from.
+    # dataset is already one of the 75 historized tags it was assembled from.
     for name in tagpaths.DATASET_TAGS:
         gateway_leaves.append(leaf(name, tagpaths.DATATYPE_DATASET, False, ""))
     _configure(target, base, gateway_leaves, result)

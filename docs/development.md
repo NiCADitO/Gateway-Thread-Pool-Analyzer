@@ -66,6 +66,60 @@ present in a second one ten minutes later. Periodic threads are not visible in
 a single instant. Run the script a few times before concluding the catalog is
 complete.
 
+Four dumps twenty seconds apart, with an HTTP load burst between the first and
+second, produced 135 distinct names on 8.3.8 against 131–134 per dump. Worth
+doing; not worth doing more than about four times, since the fourth added
+nothing on either gateway.
+
+### Finding pools that are not running at all
+
+A dump cannot show a thread pool belonging to a module you have not licensed,
+a device you have not connected, or an alarm pipeline you have not built. On a
+customer gateway all three exist, and every one of those threads would land in
+`other`.
+
+The second source is the bytecode. Ignition centralises thread naming in
+
+```
+com.inductiveautomation.ignition.common.execution.TPC.newThreadFactory(String, String)
+```
+
+so a string constant compiled into a class that calls it *is* a thread name.
+Reading each class file's constant pool (`CONSTANT_Utf8`, tag 1) yields those
+literals directly. That is how `alarming` and `drivers` got into the catalog
+without either lab gateway ever running one.
+
+**Three wrong turns worth not repeating**, each of which returned a
+confident-looking wrong answer:
+
+1. **Filtering by what a name looks like.** A million constants, ~6,000
+   candidates, and 67% recall against names already known to be real. Shape is
+   weak evidence; *where the string lives* is strong evidence.
+2. **Filtering to classes that call `Thread.setName`.** Returned **zero**
+   unbucketed candidates on 8.1 — a clean result that was measuring nothing,
+   because Ignition never calls `setName` at the call site. The tell was
+   `SingleThreadAlarmPipeline` holding the descriptor
+   `(Ljava/lang/String;Ljava/lang/String;)Ljava/util/concurrent/ThreadFactory;`
+   right beside the literal `alarm-notification-pipeline[%s]`.
+3. **Comparing a `java.lang.String` to a Python `str` under Jython.** They are
+   never equal. `String("x") == "x"` is `False`; only `str(...)` or
+   `"%s" % (...,)` matches. Every marker test was silently false and the scan
+   reported *0 thread-naming classes out of 128,877*. Same seam that
+   `test_states_cross_the_boundary_as_text_not_as_a_java_enum` guards.
+
+**State the limit.** Even done right, the scan recovers only **9 of 17**
+prefixes we have watched live — `webserver-`, `tags-history-`,
+`platform-executor-`, `shared-worker-`, `single-executor-` and
+`data-collector-` are all assembled at runtime and appear as no single
+literal. So the scan **adds** names and never **subtracts** them: its silence
+about a pool is not evidence the pool does not exist.
+`Diagnostics/UnmatchedNames` stays the backstop.
+
+**Not everything it surfaces is a thread name.** It also returns HTTP headers,
+Dropwizard metric names (`gateway-network.pendingUploads.%s`), config keys
+(`device-name`, `session-project`) and backup filenames. Read each one before
+accepting it.
+
 ---
 
 ## Verifying against a real gateway

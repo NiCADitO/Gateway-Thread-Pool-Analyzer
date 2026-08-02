@@ -141,7 +141,7 @@ system.tag.exists(tagPath)
 
     Note it must NOT be used as a write-probe substitute: an earlier design
     proposed proving existence by writing a sentinel, which would have
-    scribbled -1 into all 65 live metric tags on every provisioning run.
+    scribbled -1 into all 75 live metric tags on every provisioning run.
 
 system.tag.getConfiguration(basePath, recursive)
     -> list of dicts describing the tags at basePath.

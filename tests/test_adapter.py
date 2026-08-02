@@ -195,7 +195,7 @@ def test_the_table_agrees_with_the_scalar_tags_in_the_same_write(dump_81_11):
 
 
 def test_a_broken_dataset_call_does_not_lose_the_trend(dump_81_11):
-    """The 70 scalar tags are the point. The table is a convenience.
+    """The 80 scalar tags are the point. The table is a convenience.
 
     A dataset failure must degrade to "the table is stale", never to "the
     monitor stopped writing".

@@ -1,0 +1,141 @@
+# Live thread dump from an Ignition gateway.
+#
+# Gateway:  container 81-GW2-1
+# JVM:      OpenJDK 64-Bit Server VM (17.0.19+10-LTS mixed mode)
+# Captured: scripts/discover_threads.py
+#
+# 129 threads. This is exactly the set ThreadMXBean.getAllThreadIds()
+# reports. The dump also held 13 VM-internal thread(s) with no
+# java.lang.Thread.State line, which ThreadMXBean does not report;
+# they are deliberately excluded. See scripts/discover_threads.py.
+#
+# Format: <thread name>\t<Thread.State>
+AsyncAppender-Worker-DBAsync	WAITING
+AsyncAppender-Worker-SysoutAsync	WAITING
+C1 CompilerThread0	RUNNABLE
+C2 CompilerThread0	RUNNABLE
+Cleaner-0	TIMED_WAITING
+Common-Cleaner	TIMED_WAITING
+Connection evictor	TIMED_WAITING
+DestroyJavaVM	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+FileSystemWatchService	RUNNABLE
+Finalizer	WAITING
+HttpClient-1-SelectorManager	RUNNABLE
+HttpClient-2-SelectorManager	RUNNABLE
+HttpClient-3-SelectorManager	RUNNABLE
+HttpClient-4-SelectorManager	RUNNABLE
+Monitor Deflation Thread	RUNNABLE
+Notification Thread	RUNNABLE
+PostgreSQL-JDBC-Cleaner	TIMED_WAITING
+Reference Handler	RUNNABLE
+Scheduler-2145934377-1	TIMED_WAITING
+Service Thread	RUNNABLE
+Signal Dispatcher	RUNNABLE
+Sweeper thread	RUNNABLE
+Timer-0	TIMED_WAITING
+Wrapper-Connection	RUNNABLE
+Wrapper-Control-Event-Monitor	TIMED_WAITING
+WrapperSimpleAppMain	WAITING
+catapult-filemonitor	TIMED_WAITING
+client-auth-token-scheduler-1	TIMED_WAITING
+client-auth-token-worker-45	TIMED_WAITING
+client-auth-token-worker-46	TIMED_WAITING
+client-auth-token-worker-47	TIMED_WAITING
+client-trust-manager-1	WAITING
+cron4j::scheduler[bdf133355ede808b0e90fbd90000019fbfd4f73935c88ca8]::timer[bdf133355ede808b0e90fbd90000019fbfd4f73918ef9120]	TIMED_WAITING
+cron4j::scheduler[reporting]::timer[bdf133355ede808b0e90fbd90000019fbfd4f96923aad854]	TIMED_WAITING
+data-collector-scheduler-1	TIMED_WAITING
+data-collector-worker-1	TIMED_WAITING
+designer-auth-token-scheduler-1	TIMED_WAITING
+designer-auth-token-worker-45	TIMED_WAITING
+designer-auth-token-worker-46	TIMED_WAITING
+designer-auth-token-worker-47	TIMED_WAITING
+gateway-db-connection-validator-1	WAITING
+gateway-db-connection-validator-2	TIMED_WAITING
+gateway-expr-pollingfunc-timer	WAITING
+gateway-log-maintenance	TIMED_WAITING
+gateway-log-monitoring-session-reaper	TIMED_WAITING
+gateway-logging-sqlite-appender	TIMED_WAITING
+gateway-performance-clockdrift-detector	TIMED_WAITING
+gateway-performance-metric-history-1	TIMED_WAITING
+gateway-script-shared-timer-[Gateway_Thread_Pool_Analyzer_and_Historizer]-1	TIMED_WAITING
+gateway-scripts-pylib-notifier	WAITING
+gateway-scripts-pylib-watcher	WAITING
+gateway-shared-exec-engine-1	WAITING
+gateway-shared-exec-engine-10	WAITING
+gateway-shared-exec-engine-11	WAITING
+gateway-shared-exec-engine-12	WAITING
+gateway-shared-exec-engine-2	WAITING
+gateway-shared-exec-engine-3	WAITING
+gateway-shared-exec-engine-4	WAITING
+gateway-shared-exec-engine-5	WAITING
+gateway-shared-exec-engine-6	WAITING
+gateway-shared-exec-engine-7	WAITING
+gateway-shared-exec-engine-8	TIMED_WAITING
+gateway-shared-exec-engine-9	WAITING
+gateway.tags.subscriptionmodel-1	WAITING
+internal-remembered-subjects-scheduler-1	TIMED_WAITING
+managed-tag-provider-System-1	WAITING
+milo-netty-event-loop-0	RUNNABLE
+milo-netty-event-loop-1	RUNNABLE
+milo-netty-event-loop-2	RUNNABLE
+milo-netty-event-loop-3	RUNNABLE
+milo-netty-event-loop-4	RUNNABLE
+milo-netty-event-loop-5	RUNNABLE
+milo-netty-wheel-timer	TIMED_WAITING
+milo-shared-scheduled-executor-0	WAITING
+milo-trust-list-watcher	WAITING
+milo-trust-list-watcher	WAITING
+opc-ua-executor-2	TIMED_WAITING
+opc-ua-scheduled-executor-0	TIMED_WAITING
+opc-ua-scheduled-executor-1	TIMED_WAITING
+opc-ua-scheduled-executor-2	WAITING
+opc-ua-scheduled-executor-3	WAITING
+perspective-auth-token-scheduler-1	TIMED_WAITING
+perspective-auth-token-worker-48	TIMED_WAITING
+perspective-auth-token-worker-50	TIMED_WAITING
+perspective-auth-token-worker-51	TIMED_WAITING
+perspective-queue-11	TIMED_WAITING
+perspective-queue-20	TIMED_WAITING
+perspective-queue-22	TIMED_WAITING
+perspective-queue-23	TIMED_WAITING
+perspective-scheduler-1	TIMED_WAITING
+perspective-worker-4	TIMED_WAITING
+perspective-worker-5	TIMED_WAITING
+perspective-worker-6	TIMED_WAITING
+platform-executor-6	TIMED_WAITING
+platform-scheduled-executor-1	WAITING
+platform-scheduled-executor-2	WAITING
+platform-scheduled-executor-3	TIMED_WAITING
+platform-scheduled-executor-4	TIMED_WAITING
+server-trust-manager-1	WAITING
+sf-engine[postgresql]-forward-executor-0	WAITING
+sf-engine[postgresql]-forward-executor-1	WAITING
+sf-engine[postgresql]-scan	WAITING
+shared-scheduled-executor-1	WAITING
+shared-scheduled-executor-2	TIMED_WAITING
+shared-scheduled-executor-3	WAITING
+single-executor-1	TIMED_WAITING
+standard-tag-provider-default-1	WAITING
+tag-group-manager-System-1	TIMED_WAITING
+tag-group-manager-default-1	TIMED_WAITING
+tag-provider-subs-System-1	WAITING
+tag-provider-subs-default-1	WAITING
+tags-history-scheduler-1	TIMED_WAITING
+tags-history-worker-1	TIMED_WAITING
+webserver-227	TIMED_WAITING
+webserver-286	TIMED_WAITING
+webserver-30	TIMED_WAITING
+webserver-32-acceptor-0@76c2c432-ServerConnector@5a8a9b19{HTTP/1.1, (http/1.1)}{0.0.0.0:8088}	RUNNABLE
+webserver-33	RUNNABLE
+webserver-34	RUNNABLE
+webserver-35-acceptor-0@5d3fbc65-ServerConnector@d28eb72{SSL, (ssl, http/1.1)}{0.0.0.0:8060}	RUNNABLE
+webserver-398	RUNNABLE
+webserver-473	TIMED_WAITING
+webserver-500	RUNNABLE
+webserver-501	TIMED_WAITING

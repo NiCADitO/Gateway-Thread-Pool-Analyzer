@@ -29,7 +29,7 @@ UDT_NAME = "ThreadPool"
 #
 # NEW and TERMINATED are deliberately not broken out. Both are vanishingly
 # rare in a steady-state gateway and giving each its own historized tag across
-# every pool would cost ~24 tags to trend two flat lines. They are still
+# every pool would cost ~28 tags to trend two flat lines. They are still
 # included in Count, so if they ever do occur, Count exceeds the sum of the
 # four state members -- visible, rather than silently dropped.
 STATE_MEMBERS = [
@@ -90,10 +90,10 @@ DEADLOCKED_COUNT = "DeadlockedCount"
 # The per-pool Blocked tags say WHICH pool; this says WHETHER. That turns out
 # to be the more useful question most of the time: it is the one value worth
 # putting on a status tile and the one worth alarming on, and neither is
-# possible against twelve separate tags without an expression that has to be
+# possible against fourteen separate tags without an expression that has to be
 # rewritten every time a PoolSpec is added.
 #
-# Derived, not measured -- it is the sum of the twelve Pools/*/Blocked values
+# Derived, not measured -- it is the sum of the fourteen Pools/*/Blocked values
 # from the same sample, so it can never disagree with them.
 BLOCKED_TOTAL = "BlockedTotal"
 
@@ -110,7 +110,7 @@ GATEWAY_TAGS = [TOTAL_COUNT, PEAK_COUNT, DAEMON_COUNT, DEADLOCKED_COUNT,
 # with no error anywhere -- see build_view.build_table.
 #
 # NOT historized, and not because it was forgotten. The historian stores scalar
-# values per tag; the trendable numbers in here are already the 65 historized
+# values per tag; the trendable numbers in here are already the 75 historized
 # scalars this dataset is assembled from. Historizing it would duplicate all of
 # them into a blob nothing can chart.
 POOL_TABLE = "PoolTable"
@@ -204,7 +204,7 @@ def datatype_for(path):
 def historized_paths():
     """The paths that get tag history enabled. Deliberately NOT all of them.
 
-    The 60 pool members plus the 5 gateway counters -- 65 of the 71 -- and
+    The 70 pool members plus the 5 gateway counters -- 75 of the 81 -- and
     neither the 5 Diagnostics tags nor the PoolTable DataSet.
 
     Excluding Diagnostics is not tidiness, it is the difference between

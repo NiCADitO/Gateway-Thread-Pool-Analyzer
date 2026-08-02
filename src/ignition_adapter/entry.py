@@ -234,7 +234,7 @@ def provision(history_provider):
     against the very gateway being measured.
 
     Do not trust this function's own report alone. The real proof is the next
-    timer sample: it logs `71 tags written` instead of `71 of 71 writes
+    timer sample: it logs `81 tags written` instead of `81 of 81 writes
     rejected`, and that signal comes from a code path that was already
     working before any of this existed.
     """

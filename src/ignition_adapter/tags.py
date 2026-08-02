@@ -29,7 +29,7 @@ class WriteResult(object):
         self.bad_paths = []
         self.error = ""
         # Set when the PoolTable DataSet could not be built. Kept separate
-        # from `error` on purpose: the 70 scalar tags are what the trend runs
+        # from `error` on purpose: the 80 scalar tags are what the trend runs
         # on, and they may well have written perfectly. Folding a table
         # failure into `error` would report a healthy pipeline as dead.
         self.dataset_error = ""
@@ -76,7 +76,7 @@ def build_pool_dataset(snap, dataset_system=None):
 def write_snapshot(snap, tag_system=None, dataset_system=None):
     """Write one Snapshot to its tags in a single batched call.
 
-    One writeBlocking for the whole sample rather than one per tag: ~71 round
+    One writeBlocking for the whole sample rather than one per tag: ~81 round
     trips per sample at a 10 second cadence would be a self-inflicted load
     problem on the very thing being measured.
 
@@ -98,7 +98,7 @@ def write_snapshot(snap, tag_system=None, dataset_system=None):
 
     dataset, dataset_error = build_pool_dataset(snap, dataset_system)
     if dataset is None:
-        # Skipped, not fatal. The table goes stale; the 70 trended tags -- the
+        # Skipped, not fatal. The table goes stale; the 80 trended tags -- the
         # entire reason this project exists -- still get written.
         result.dataset_error = dataset_error
     else:

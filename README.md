@@ -21,9 +21,9 @@ own tags.
 | **M0** Thread-name discovery | **done** | Real thread names captured off three live gateways — 8.1.11, 8.1.48 and 8.3.8. The catalog is evidence-based, not guessed. |
 | **M1** Pure counting core | **done** | 49 tests, no gateway required. `other` is empty on all three real gateways. |
 | **M2** Ignition adapter | **done** | Runs under each gateway's real Jython against a real `ThreadMXBean` on both 8.1.11 and 8.3.8. Writes nothing. |
-| **M3** Tag provisioning | **done** | 71 tags created and independently verified with `system.tag.exists`. Idempotent. |
+| **M3** Tag provisioning | **done** | 81 tags created and independently verified with `system.tag.exists`. Idempotent. |
 | **M4** Gateway timer | **done** | 10 s fixed delay in Gateway scope on both gateways. 3–7 ms/sample. |
-| **M5** History | **done** | 64 series writing to Postgres, on-change. Power Chart is a Designer step — see below. |
+| **M5** History | **done** | 75 series writing to Postgres, on-change. Power Chart is a Designer step — see below. |
 | **M6** Deploy harness | **done** | One command per gateway, both versions. |
 
 **111 tests**, none of which need a gateway.
@@ -32,23 +32,35 @@ own tags.
 
 ## The pool catalog
 
-Twelve buckets. Every thread lands in exactly one, first match wins, and
-`other` catches the rest so the totals always reconcile.
+Fourteen buckets. Every thread lands in exactly one, first match wins, and
+`other` catches the rest so the totals always reconcile. On all five captured
+dumps `other` is **zero**.
 
 | Bucket | Matches | Why you'd watch it |
 |---|---|---|
 | `webserver` | `webserver-*` | Jetty request handlers. Pinned here means the gateway feels slow to humans. **The most useful single trend.** |
 | `executor` | `gateway-shared-exec-engine-*`, `shared-worker-*`, `platform-executor-*`, `ForkJoinPool*` | The general work pool. A backlog means something else is blocking. |
-| `scheduler` | `platform-scheduled-executor-*`, `cron4j::*`, `shared-scheduler-*`, `Timer-*` | Gateway timer scripts, scheduled reports, polling tags. Growth means a task is overrunning its interval. |
-| `tags` | `tag-provider*`, `tag-group-manager*`, `gateway.tags.*` | Tag providers and group execution. Blocked here stalls tag evaluation gateway-wide. |
-| `history` | `tags-history-*`, `gateway-storeforward-*` | Early warning for a historian that can't keep up with its own ingest. |
-| `database` | `gateway-db-connection-validator-*`, `mysql-cj-*`, `HSQLDB Timer*`, `Connection evictor` | Connection pool validation. Churn means connections dropping. |
-| `opcua` | `milo-*`, `opc-ua-*` | The OPC-UA stack. Spikes track device connection churn. |
-| `perspective` | `perspective-*` | Session workers. Read next to `webserver` to separate "many users" from "one slow request". |
-| `scripting` | `gateway-scripts-*` | Project library watching. Note: gateway timer scripts run on `scheduler`, not here. |
-| `platform` | logging, file/cert watchers, wrapper, gateway network, Jetty housekeeping | Constant-count background threads. Kept out of `webserver` on purpose. |
+| `scheduler` | `platform-scheduled-executor-*`, `cron4j::*`, `shared-scheduler-*`, `Timer-*` | Scheduled reports, polling tags, fixed-rate work. Growth means a task is overrunning its interval. |
+| `tags` | `tag-provider*`, `standard-tag-provider-*`, `config-tag-provider*`, `tag-group-manager*`, `gateway.tags.*` | Tag providers and group execution. Blocked here stalls tag evaluation gateway-wide. |
+| `history` | `tags-history-*`, `gateway-storeforward-*`, `*sf-engine[*`, `data-collector-*` | Early warning for a historian that can't keep up with its own ingest. |
+| `database` | `gateway-db-connection-validator-*`, `mysql-cj-*`, `*-JDBC-Cleaner`, `HSQLDB Timer*`, `Connection evictor` | Connection pool validation. Churn means connections dropping. |
+| `opcua` | `milo-*`, `opc-ua-*` | The OPC-UA stack itself. Spikes track device connection churn. |
+| `perspective` | `perspective-*`, `perspective.*` | Session workers. Read next to `webserver` to separate "many users" from "one slow request". |
+| `alarming` † | `alarm-notification-*`, `gateway-alarm-*`, `sip-*`, `pop3-poll*` | One thread per alarm pipeline. BLOCKED here means alarms are not going out. |
+| `drivers` † | `drivers-*`, `drivers.*`, `bacnet-*` | Field device drivers and their request cycles. A backed-up request cycle is a device that stopped answering. |
+| `scripting` | `gateway-script*`, `gateway-scheduled-scripts-*`, `gateway-tags-eventscripts*`, `script-invoke-async*` | Everything that runs user script — **including gateway timer scripts**, which get their own `gateway-script-shared-timer-[<project>]` thread. |
+| `platform` | logging, file/cert watchers, wrapper, gateway network, auth/OAuth, Jetty housekeeping | Constant-count background threads. Kept out of `webserver` on purpose. |
 | `jvm` | JIT compiler, reference handling, cleaners | Note `GC Thread#*` and `VM Thread` are **not** here in practice — see below. |
-| `other` | everything else | Expected near zero. Rising means a new pool appeared. |
+| `other` | everything else | Expected zero. Rising means a new pool appeared — read `Diagnostics/UnmatchedNames`. |
+
+† `alarming` and `drivers` have **never been seen to fire**. Neither lab
+gateway has an alarm pipeline configured or a field device connected, so their
+names come from string constants compiled into the classes that call
+`TPC.newThreadFactory` rather than from a dump. They are marked
+`EVIDENCE_CONSTANT` in the catalog, which exempts them from the "no dead
+bucket" test and is asserted to stay true — the moment either starts matching
+real threads, the test tells you to promote it. See
+[docs/development.md](docs/development.md#finding-pools-that-are-not-running-at-all).
 
 Adding a bucket is one `PoolSpec` in [taxonomy.py](src/thread_monitor/taxonomy.py)
 and nothing else. Provisioning walks the catalog, so the tags come with
@@ -90,7 +102,7 @@ documentation. That immediately paid for itself:
                ApiRoute, UnmatchedNames}
 ```
 
-69 flat memory tags, created by `system.tag.configure`. **No UDT** — the plan
+81 flat memory tags, created by `system.tag.configure`. **No UDT** — the plan
 originally called for one, and it was dropped: its only real benefit was
 "history configured in one place", which a `for` loop already gives you.
 Keeping it would have meant depending on `_types_` semantics and

@@ -58,7 +58,7 @@ docker exec 81-GW2-1 sh -c 'ls /usr/local/bin/ignition/data/config/resources/cor
 ```
 
 In this lab that returns `PostgreSQLHistorian`, whose `config.json` names the
-datasource `PostgreSQL`. Passing the datasource name instead would create 65
+datasource `PostgreSQL`. Passing the datasource name instead would create 75
 tags with a provider that does not exist — and they would look historized.
 
 ### A gateway with no historian
@@ -67,7 +67,7 @@ tags with a provider that does not exist — and they would look historized.
 ... --provision --history-provider NONE
 ```
 
-Creates all 71 tags with live values and no history. The log says
+Creates all 81 tags with live values and no history. The log says
 `(NO HISTORY -- live values only)` so it cannot be mistaken for a gateway that
 is trending. A *blank* provider is still refused — blank is what an unset
 config looks like, and treating it as "no history wanted" is how you get 65
@@ -88,13 +88,13 @@ docker logs <container> 2>&1 | grep GatewayThreadMonitor
 Healthy looks like this, once every 5 minutes:
 
 ```
-I [GatewayThreadMonitor]: sample 30: 71 tags written (105 threads, 4ms)
+I [GatewayThreadMonitor]: sample 30: 81 tags written (105 threads, 4ms)
 ```
 
 Not-yet-provisioned looks like this:
 
 ```
-W [GatewayThreadMonitor]: 71 of 71 writes rejected, first:
+W [GatewayThreadMonitor]: 81 of 81 writes rejected, first:
   [default]GatewayHealth/Threads/Pools/webserver/Count (Bad_NotFound)
 ```
 
@@ -123,11 +123,11 @@ healthy while the historian stores nothing.
 docker exec postgresct psql -U ignition -d test -c "SELECT te.tagpath, count(*) AS rows, min(d.intvalue) AS lo, max(d.intvalue) AS hi, to_timestamp(max(d.t_stamp)/1000) AS last FROM sqlth_1_data d JOIN sqlth_te te ON d.tagid=te.id WHERE te.tagpath ILIKE 'gatewayhealth%' GROUP BY 1 ORDER BY 2 DESC LIMIT 15;"
 ```
 
-Expect **65** distinct series — not 71. The five `Diagnostics` tags and the
+Expect **75** distinct series — not 81. The five `Diagnostics` tags and the
 `PoolTable` DataSet are
 deliberately not historized: `LastSampleTime` is a timestamp so it changes
 every single sample by definition, and historizing it plus `SampleDurationMs`
-would add ~12,960 rows/day against ~11,109 for all 65 real metrics combined —
+would add ~12,960 rows/day against ~11,109 for all 75 real metrics combined —
 54% of rows carrying nothing trendable, and it would degrade on-change back
 into fixed-periodic.
 
@@ -243,7 +243,7 @@ now", which is the question you actually have first.
 
 It is fed by one tag, `GatewayHealth/Threads/PoolTable`, whose dataType is
 `DataSet`. The sampler builds it with `system.dataset.toDataSet(headers, rows)`
-and writes it **in the same `writeBlocking` batch** as the 70 scalars — two
+and writes it **in the same `writeBlocking` batch** as the 80 scalars — two
 calls could land either side of the next sample, and then the table would be
 describing a different instant from the tiles above it.
 
@@ -268,7 +268,7 @@ in the browser's own React tree, and a `ReactVirtualized__Grid` of height 0.
 Observed identically on 2.1.11 and 3.3.8. Twelve rows do not need virtualizing.
 
 If the table is empty, check in this order: the tag exists and has a value →
-the timer log says `71 tags written` not `70` → `props.virtualized` is `false`
+the timer log says `81 tags written` not `80` → `props.virtualized` is `false`
 in the deployed `view.json`.
 
 ### Reading it
@@ -291,7 +291,7 @@ name rather than just the one your gateway uses.
 Safe to re-run any time. It is idempotent: leaves are overwritten with the
 complete desired configuration, folders use collision policy `Ignore` (what
 `Overwrite` does to a folder's *children* is undocumented, and the blast
-radius would be all twelve pools plus their history).
+radius would be all fourteen pools plus their history).
 
 Nothing is ever deleted. Removing a `PoolSpec` leaves its tags behind as
 orphans rather than risking a recursive delete — clean those up by hand if you

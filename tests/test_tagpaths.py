@@ -25,7 +25,7 @@ def test_all_paths_is_exactly_the_scalars_plus_the_datasets():
 def test_the_pool_table_is_a_dataset_and_is_not_historized():
     """A DataSet in the historian is a blob nothing can chart.
 
-    Every number in it is already one of the 65 historized scalars it was
+    Every number in it is already one of the 75 historized scalars it was
     assembled from, so historizing it would duplicate all of them and trend
     none of them.
     """
