@@ -143,17 +143,31 @@ docker exec postgresct psql -U ignition -d test -c "SELECT pname, to_timestamp(s
 ```
 
 In this lab both gateways point at the *same* `test` database, so the historian
-holds both and separates them by driver:
+holds both and separates them by driver.
 
-| Gateway | drvid | Partitioning | Table |
-|---|---|---|---|
-| 8.1.11 `gw1` | 1 | disabled | `sqlth_1_data` |
-| 8.3.8 `gw2` | 3 | monthly | `sqlt_data_3_2026_08` |
+**There is more than one `sqlth_drv` row per gateway.** Turning partitioning on
+added a second row for each, and only one of the pair carries tag data:
 
-That is worth knowing before you conclude a gateway "isn't historizing":
-querying `sqlth_1_data` for gw2's data returns zero rows and looks exactly like
-a broken pipeline. Two gateways sharing one historian is normal and fine — the
-tag paths are identical, so it is only `drvid` that tells them apart.
+```
+ id | name | provider
+  1 | gw1  |            <- no tag provider; NOT where the data is
+  2 | gw1  | default    <- the 75 gatewayhealth series live here
+  3 | gw2  |
+  4 | gw2  | default
+```
+
+So resolve it by query rather than by guessing an id:
+
+```bash
+docker exec postgresct psql -U ignition -d test -c "SELECT si.drvid, d.name, d.provider, count(DISTINCT te.tagpath) AS series FROM sqlth_te te JOIN sqlth_scinfo si ON te.scid=si.id JOIN sqlth_drv d ON si.drvid=d.id WHERE te.tagpath ILIKE 'gatewayhealth%' GROUP BY 1,2,3 ORDER BY 1;"
+```
+
+**And the partition table name is not stable.** `sqlth_1_data` was correct
+while partitioning was *off*; once it was enabled on gw1 that table froze and
+new rows went to hourly partitions named `sqlt_data_1_<epoch>`. Always read
+the current one out of `sqlth_partitions` (query above) instead of hardcoding
+it — querying the stale table returns zero rows and looks exactly like a
+broken pipeline.
 
 ---
 
@@ -174,6 +188,24 @@ That rewrites the pens into two panels — six pool counts, and the same six
 pools' `Blocked` below — with stepped interpolation and MinMax aggregation. It
 keeps the Designer's original at `view.json.orig`.
 
+**The visible window is `--range` / `--range-units`, default `60 minutes`.**
+It is an argument specifically because this script kept resetting a range that
+had been changed by hand in the Designer. It is still written on every run —
+this script *normalises* the view, and "keep whatever is already in the file"
+is the read-then-write pattern that silently shrank the chart heights across
+successive runs. The fix for stomping a human's choice is to make the choice
+an argument, not to make the script guess.
+
+```bash
+python scripts/build_view.py ... --range 8 --range-units hours
+```
+
+`--range-units` is restricted to the component schema's own enum: `seconds
+minutes hours days weeks months years` — all plural, no singular form. That is
+why the default is `60 minutes` rather than `1 hour`: the chart renders its
+header straight from these two values, so `--range 1 --range-units hours`
+puts the words "Last 1 hours" on the dashboard.
+
 **Why it edits rather than generates.** `view.json` is one of the formats
 CLAUDE.md #5 forbids synthesizing. The script only ever changes keys the
 Designer already wrote, and the values it writes were read out of the
@@ -184,6 +216,16 @@ Perspective module's own JS bundle rather than guessed:
   curveMonotoneX | curveMonotoneY | curveNatural`.
 - `aggregateMode` — `Default | Average | MinMax | LastValue | SimpleAverage |
   Sum | Minimum | Maximum | DurationOn | DurationOff | ...`.
+
+**The Blocked panel carries no chrome.** Measured in the live DOM, a Power
+Chart's `chart-header` is a fixed **56px** regardless of panel height — 37% of
+the old 150px Blocked panel spent on a toolbar and a second copy of the range
+selector. Hiding `config.visibility.showDateRangeSelector` and all eight
+`config.visibility.buttons.*` flags on that panel only, and raising it to
+210px, took its drawing area from **92px to 176px**. `showDateRangeSelector`
+is documented as the *visible state* of the control — hiding it does not
+change the window, which stays whatever `config` says. The main chart above
+keeps every control.
 
 **Blocked gets its own chart, not its own axis.** `axes` and `plots` are real
 sibling props — the bundle lists them as settings categories — but neither

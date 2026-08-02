@@ -159,7 +159,18 @@ TABLE = "ia.display.table"
 # nothing and only the pen table was left. The file looked fine each time; the
 # only symptom was a screenshot with no graph in it.
 MAIN_HEIGHT = 360
-BLOCKED_HEIGHT = 150
+
+# Was 150, which rendered a 24-PIXEL plot. Measured in the live DOM:
+#
+#     chart-header   56 px   <- fixed, regardless of panel height
+#     chart-body     92 px   of which the time-axis labels take ~68
+#     plot svg       24 px   <- what is actually left to draw on
+#
+# The header is the reason, and it does not shrink with the panel: 56px of a
+# 150px panel is 37% spent on a toolbar. Raising the height alone would not
+# have fixed this -- the fix is removing the chrome (see BLOCKED_VISIBILITY)
+# AND giving it more room.
+BLOCKED_HEIGHT = 210
 PANEL_GAP = 12
 
 # One content width for every panel, on both gateways.
@@ -192,6 +203,35 @@ CHART_VISIBILITY = {
     "showDateRangeSelector": True,
 }
 
+# The Blocked panel gets NO chrome at all.
+#
+# It is a short panel, it shares the main chart's window, and a second copy of
+# the range selector is both redundant and the single biggest consumer of its
+# height. `showDateRangeSelector` is documented as "Flag representing the
+# VISIBLE STATE of the ... date range selector" -- it hides the control, it
+# does not change the range, which stays whatever props.config says.
+#
+# `buttons` is a real sibling of the show* flags: additionalProperties:false
+# with exactly these eight keys, identical on 2.1.11 and 3.3.8. They are the
+# toolbar (pan/zoom, x-trace, range brush, annotations, fullscreen, settings),
+# every one of which is an INTERACTION affordance rather than dashboard
+# content -- and the main chart above still has all of them.
+BLOCKED_VISIBILITY = {
+    "showTagBrowser": False,
+    "showPenControlDisplay": False,
+    "showDateRangeSelector": False,
+    "buttons": {
+        "showTagBrowserButton": False,
+        "showPanZoomButton": False,
+        "showXTraceButton": False,
+        "showRangeBrushButton": False,
+        "showAnnotationButton": False,
+        "showFullscreenButton": False,
+        "showSettingsButton": False,
+        "showMoreButton": False,
+    },
+}
+
 # THE PLOT BACKGROUND IS A PROP, NOT CSS.
 #
 # This was chased the long way round first. The plot surface is an SVG rect
@@ -221,20 +261,42 @@ CHART_SURFACE = "#12161C"
 AXIS_LINE = "#2E3641"
 AXIS_TEXT = "#8B94A3"
 
-# "Last 24 hours", the window the mockup asks for.
+# The visible window. ONE HOUR by default -- and a CLI flag, because this
+# script kept resetting a range that had been set by hand in the Designer.
 #
-# realtime here means a rolling window ending now, which is what the chart's
-# own "Last 8 hours" selector sets -- not "poll the live tag". The historical
-# alternative needs fixed startDate/endDate, which is the wrong shape for a
-# dashboard that should still be right tomorrow.
+# It is still written on every run rather than read back from the file: this
+# script normalises the view, and "preserve whatever is already there" is the
+# read-then-write pattern that silently shrank the chart heights 592 -> 410 ->
+# 220 across three runs. The fix for stomping a human's choice is to make the
+# choice an argument, not to make the script guess.
+#
+# realtime = a rolling window ending now, which is what the chart's own
+# selector sets. The historical alternative needs fixed start/end dates, which
+# is the wrong shape for a dashboard that should still be right tomorrow.
+#
+# Verified against perspective-timeseries.components.json in BOTH modules --
+# note this is a DIFFERENT schema file from ia.components.json, which does not
+# contain the Power Chart at all:
+#   mode           enum ['realtime', 'historical']
+#   unitOfTime     number, default 8
+#   measureOfTime  enum ['seconds','minutes','hours','days','weeks',
+#                        'months','years']      <- plural, all of them
 #
 # config.rangeStartDate / rangeEndDate are left alone on purpose: both schema
 # descriptions literally begin "READ-ONLY:".
-CHART_RANGE = {
-    "mode": "realtime",
-    "unitOfTime": 24,
-    "measureOfTime": "hours",
-}
+RANGE_MEASURES = ["seconds", "minutes", "hours", "days", "weeks", "months",
+                  "years"]
+
+# 60 minutes rather than 1 hour. Identical window; the chart renders the
+# selector's label straight from these two values, so unitOfTime=1 puts
+# "Last 1 hours" on the dashboard. Every enum member is plural and there is no
+# singular form, so the only way to avoid the bad grammar is not to use 1.
+DEFAULT_RANGE_UNIT = 60
+DEFAULT_RANGE_MEASURE = "minutes"
+
+
+def chart_range(unit, measure):
+    return {"mode": "realtime", "unitOfTime": unit, "measureOfTime": measure}
 
 
 def strip_generated(root):
@@ -263,7 +325,7 @@ def strip_generated(root):
     return removed
 
 
-def build(view, provider, drv):
+def build(view, provider, drv, window):
     root = view["root"]
     strip_generated(root)
     chart = find_chart(root)
@@ -305,12 +367,14 @@ def build(view, provider, drv):
     blocked["meta"]["name"] = BLOCKED_CHART_NAME
 
     # Hide the runtime editing panels, darken the surfaces, set the window.
-    for panel in (chart, blocked):
+    # Both panels share the same window; only the main one keeps the selector.
+    for panel, wanted in ((chart, CHART_VISIBILITY),
+                          (blocked, BLOCKED_VISIBILITY)):
         config = dict(panel["props"].get("config") or {})
         visibility = dict(config.get("visibility") or {})
-        visibility.update(CHART_VISIBILITY)
+        visibility.update(wanted)
         config["visibility"] = visibility
-        config.update(CHART_RANGE)
+        config.update(window)
         panel["props"]["config"] = config
 
         # The fix for the white plot area. One plot, explicitly coloured,
@@ -829,18 +893,30 @@ def main():
     parser.add_argument("--restart", action="store_true",
                         help="restart the gateway afterwards (needed on 8.3, "
                              "which does not watch the project directory)")
+    parser.add_argument("--range", type=int, default=DEFAULT_RANGE_UNIT,
+                        dest="range_unit",
+                        help="how much time both charts show (default 1)")
+    parser.add_argument("--range-units", default=DEFAULT_RANGE_MEASURE,
+                        choices=RANGE_MEASURES, dest="range_measure",
+                        help="unit for --range (default hours). The list is "
+                             "the component schema's own enum.")
     args = parser.parse_args()
+
+    if args.range_unit < 1:
+        raise SystemExit("--range must be at least 1")
+
+    window = chart_range(args.range_unit, args.range_measure)
 
     view, remote = read_view(args.container, args.project, args.view)
     backup(args.container, remote)
 
-    pens, tiles, warning, rows = build(view, args.provider, args.drv)
+    pens, tiles, warning, rows = build(view, args.provider, args.drv, window)
     write_view(args.container, remote, view)
 
     print("%s/%s: %d pens across 2 panels, %d tiles, %d table rows, "
-          "provider=%s drv=%s"
-          % (args.container, args.view, pens, tiles, rows, args.provider,
-             args.drv))
+          "last %d %s, provider=%s drv=%s"
+          % (args.container, args.view, pens, tiles, rows, args.range_unit,
+             args.range_measure, args.provider, args.drv))
     if warning:
         print("  WARNING: %s" % (warning,))
     print("  original kept at %s.orig" % (remote,))
