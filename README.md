@@ -2,12 +2,17 @@
 
 Trend an Ignition gateway's thread pools over time.
 
-The gateway's Status page shows you a live thread list. It does not show you
-what the webserver pool looked like an hour ago, whether store-and-forward has
-been climbing all week, or what else was happening the last time things went
-blocked. This samples the gateway JVM's threads on a timer, buckets them by
-pool, counts them by state, and writes the result to historized tags — so
-"the gateway feels slow" becomes a trend you can point at.
+**The problem.** Ignition's built-in Status page gives you a live thread list
+— this instant, and nothing before it. That page cannot tell you what the
+webserver pool looked like an hour ago, whether store-and-forward has been
+climbing all week, or what else was running the last time a pool went blocked.
+The moment you want any of that, the evidence is already gone.
+
+**What this does.** `gateway-thread-monitor` samples the gateway JVM's threads
+on a timer, buckets them into 14 pools, counts them by
+`java.lang.Thread.State`, and writes the result into **historized** Ignition
+tags — 75 trended series. So "the gateway feels slow" stops being a feeling
+and becomes a trend you can point at, days or weeks back.
 
 Targets Ignition **8.1 and 8.3**. Reads only; the only thing it writes is its
 own tags.
