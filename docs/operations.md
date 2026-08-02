@@ -185,8 +185,30 @@ python scripts/build_view.py --container 81-GW2-1 --view GWThreadTrends \
 ```
 
 That rewrites the pens into two panels — six pool counts, and the same six
-pools' `Blocked` below — with stepped interpolation and MinMax aggregation. It
-keeps the Designer's original at `view.json.orig`.
+pools' `Blocked` below — with stepped interpolation and MinMax aggregation.
+
+**The Designer's original is archived into the repo**, at
+`ignition-project/designer-originals/<view>.json`, under git — *not* beside
+the view on the gateway. The old `view.json.orig` sat inside a directory the
+Designer owns and clears on save: adding one Table component deleted the 8.1
+backup outright. And because the guard was "create it only if missing", the
+next run then copied the already-normalised file into its place, so the
+"known-good Designer shape" quietly became a copy of this script's own output
+— which is the one artifact CLAUDE.md #5 depends on existing.
+
+The archive is now only ever written from a view that still *looks*
+Designer-made (no `blockedChart`, no `cap_*`/`val_*` nodes). If there is no
+archive and the live view is already normalised, the script says so loudly
+instead of archiving junk:
+
+```
+WARNING: no Designer original archived for GwThreadingTrends, and the live
+view is already normalised -- nothing safe to archive.
+```
+
+That is the current state of the 8.1 view: its original was lost before this
+was fixed, and only a fresh Designer export brings it back. The 8.3 original
+was rescued and is committed.
 
 **The visible window is `--range` / `--range-units`, default `60 minutes`.**
 It is an argument specifically because this script kept resetting a range that

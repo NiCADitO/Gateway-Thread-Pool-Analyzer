@@ -872,11 +872,64 @@ def write_view(container, remote, view):
         raise SystemExit("failed writing %s" % (remote,))
 
 
-def backup(container, remote):
-    """Keep the Designer's original next to it. It is the known-good shape."""
-    subprocess.check_call(["docker", "exec", container, "sh", "-c",
-                           "test -f '%s.orig' || cp '%s' '%s.orig'"
-                           % (remote, remote, remote)])
+ORIGINALS_DIR = os.path.join(REPO_ROOT, "ignition-project", "designer-originals")
+
+
+def is_pristine(view):
+    """True if this view still looks like the Designer wrote it.
+
+    Detected by the absence of the nodes THIS script creates. Cheap, and it
+    only has to be right in one direction: a false "not pristine" refuses to
+    archive, which is safe. A false "pristine" would archive our own output as
+    the original, which is the failure this whole function exists to prevent.
+    """
+    for child in (view.get("root", {}).get("children") or []):
+        name = (child.get("meta") or {}).get("name", "")
+        if name == BLOCKED_CHART_NAME or name.startswith("cap_") \
+                or name.startswith("val_"):
+            return False
+    return True
+
+
+def archive_original(container, remote, view, view_name):
+    """Archive the Designer's version INTO THE REPO, not next to the file.
+
+    The old behaviour kept `view.json.orig` beside the view. That is inside a
+    directory the Designer owns, and the Designer deletes files it does not
+    recognise when it saves: adding one Table component wiped the 8.1 backup
+    entirely. Container rebuilds take it too.
+
+    Worse, the old guard was `test -f X.orig || cp X X.orig` -- create it only
+    if missing. So once the Designer had deleted it, the very next run copied
+    the ALREADY-NORMALISED file into its place, and the "known-good Designer
+    shape" silently became a copy of this script's own output. CLAUDE.md #5
+    leans on that file being genuine, so that is a quiet loss of the one
+    artifact the rule depends on.
+
+    Now: the archive lives in the repo, under git, and is only ever written
+    from a view that still looks Designer-made. If we have no archive and the
+    live view is already normalised, that is stated loudly rather than papered
+    over -- the original is gone and only a fresh Designer export brings it
+    back.
+    """
+    if not os.path.isdir(ORIGINALS_DIR):
+        os.makedirs(ORIGINALS_DIR)
+    archive = os.path.join(ORIGINALS_DIR, "%s.json" % (view_name,))
+
+    if os.path.exists(archive):
+        return "archived original: %s" % (
+            os.path.relpath(archive, REPO_ROOT),)
+
+    if not is_pristine(view):
+        return ("WARNING: no Designer original archived for %s, and the live "
+                "view is already normalised -- nothing safe to archive. "
+                "Re-export from the Designer if you want the fallback back."
+                % (view_name,))
+
+    with open(archive, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(view, indent=2) + "\n")
+    return "archived the Designer original -> %s" % (
+        os.path.relpath(archive, REPO_ROOT),)
 
 
 def main():
@@ -908,7 +961,8 @@ def main():
     window = chart_range(args.range_unit, args.range_measure)
 
     view, remote = read_view(args.container, args.project, args.view)
-    backup(args.container, remote)
+    # Archive BEFORE build() mutates `view` in place.
+    archived = archive_original(args.container, remote, view, args.view)
 
     pens, tiles, warning, rows = build(view, args.provider, args.drv, window)
     write_view(args.container, remote, view)
@@ -919,7 +973,7 @@ def main():
              args.range_measure, args.provider, args.drv))
     if warning:
         print("  WARNING: %s" % (warning,))
-    print("  original kept at %s.orig" % (remote,))
+    print("  %s" % (archived,))
 
     if args.restart:
         subprocess.check_call(["docker", "restart", args.container],
