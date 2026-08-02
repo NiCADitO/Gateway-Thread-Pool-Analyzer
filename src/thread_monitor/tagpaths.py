@@ -9,7 +9,8 @@ Layout:
 
     [default]GatewayHealth/Threads/
         Pools/<key>/{Count,Runnable,Blocked,Waiting,TimedWaiting}
-        TotalCount  PeakCount  DaemonCount  DeadlockedCount
+        TotalCount  PeakCount  DaemonCount  DeadlockedCount  BlockedTotal
+        PoolTable                       <- DataSet, feeds the Perspective table
         Diagnostics/{SampleDurationMs, LastSampleTime, LastError,
                      ApiRoute, UnmatchedNames}
 
@@ -99,6 +100,23 @@ BLOCKED_TOTAL = "BlockedTotal"
 GATEWAY_TAGS = [TOTAL_COUNT, PEAK_COUNT, DAEMON_COUNT, DEADLOCKED_COUNT,
                 BLOCKED_TOTAL]
 
+# The whole snapshot as one DataSet, so the Perspective table can show current
+# state per pool without sixty separate bindings.
+#
+# It is a tag rather than a Perspective named query or a script transform for
+# one reason: `props.data` bound to a tag is a shape this project has already
+# proven works (it is the same binding the stat tiles use for props.text). A
+# per-cell `props.data[0].count` binding was tried first and rendered zero rows
+# with no error anywhere -- see build_view.build_table.
+#
+# NOT historized, and not because it was forgotten. The historian stores scalar
+# values per tag; the trendable numbers in here are already the 65 historized
+# scalars this dataset is assembled from. Historizing it would duplicate all of
+# them into a blob nothing can chart.
+POOL_TABLE = "PoolTable"
+
+DATASET_TAGS = [POOL_TABLE]
+
 SAMPLE_DURATION_MS = "SampleDurationMs"
 LAST_SAMPLE_TIME = "LastSampleTime"
 LAST_ERROR = "LastError"
@@ -109,11 +127,16 @@ DIAGNOSTIC_TAGS = [SAMPLE_DURATION_MS, LAST_SAMPLE_TIME, LAST_ERROR,
                    API_ROUTE, UNMATCHED_NAMES]
 
 
-def all_paths():
-    """Every tag path this project expects to exist, in write order.
+def scalar_paths():
+    """Every path whose value is a plain number, string or timestamp.
 
-    Used by provisioning to know what to create and by the tests to prove the
-    committed tag JSON covers exactly this set.
+    This is exactly what snapshot.flatten_for_write() produces, in the same
+    order, and test_tagpaths proves the two never drift apart.
+
+    Split out from all_paths() because the DataSet tag cannot be built in this
+    package: turning rows into a Dataset needs system.dataset.toDataSet, and
+    nothing under thread_monitor/ is allowed to touch system.* (CLAUDE.md #1).
+    The pure core produces the rows; the adapter converts and appends them.
     """
     paths = []
     for key in taxonomy.spec_keys():
@@ -126,12 +149,36 @@ def all_paths():
     return paths
 
 
+def dataset_paths():
+    paths = []
+    for name in DATASET_TAGS:
+        paths.append(gateway_tag(name))
+    return paths
+
+
+def all_paths():
+    """Every tag path this project expects to exist.
+
+    Used by provisioning to know what to create, and by audit() to prove the
+    provider really holds them. Built by concatenation rather than by a second
+    copy of the loops, so a path can never appear in one and not the other.
+    """
+    return scalar_paths() + dataset_paths()
+
+
 # Ignition dataType names. Int4 is the default but is stated anyway, because
 # a tag that silently comes out the wrong type is not diagnosable from the
 # trend. See ignition_adapter/stubs.py for the full legal list.
 DATATYPE_INT = "Int4"
 DATATYPE_STRING = "String"
 DATATYPE_DATETIME = "DateTime"
+
+# Verified by reflection on BOTH gateways: the DataType enum in
+# com.inductiveautomation.ignition.common.sqltags.model.types has 22 constants
+# and `DataSet` is one of them, spelled exactly like this. Worth checking
+# rather than assuming -- a typo in tagType silently becomes `Unknown` instead
+# of erroring, per stubs.py.
+DATATYPE_DATASET = "DataSet"
 
 # Diagnostic tags are NOT all integers, unlike everything else.
 DIAGNOSTIC_TYPES = {
@@ -148,14 +195,17 @@ def datatype_for(path):
     for name in DIAGNOSTIC_TAGS:
         if path == diagnostic_tag(name):
             return DIAGNOSTIC_TYPES[name]
+    for name in DATASET_TAGS:
+        if path == gateway_tag(name):
+            return DATATYPE_DATASET
     return DATATYPE_INT
 
 
 def historized_paths():
     """The paths that get tag history enabled. Deliberately NOT all of them.
 
-    The 60 pool members plus the 4 gateway counters -- 64 of the 69 -- and
-    none of the 5 Diagnostics tags.
+    The 60 pool members plus the 5 gateway counters -- 65 of the 71 -- and
+    neither the 5 Diagnostics tags nor the PoolTable DataSet.
 
     Excluding Diagnostics is not tidiness, it is the difference between
     on-change historization working and not. Measured on the live 8.1

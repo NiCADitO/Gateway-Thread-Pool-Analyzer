@@ -17,7 +17,7 @@ Jython 2.7: no f-strings, no comprehensions.
 #
 # There is no sane default. The property defaults to "" on the gateway, and a
 # blank provider is not known to store anything, so provisioning refuses to
-# run rather than creating 64 tags that look historized and quietly are not.
+# run rather than creating 65 tags that look historized and quietly are not.
 HISTORY_PROVIDER = ""
 
 # Provision the tag tree once, automatically, on the first timer sample after

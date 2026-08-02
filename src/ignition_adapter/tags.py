@@ -5,6 +5,7 @@ Jython 2.7: no f-strings, no comprehensions.
 import sys
 
 from thread_monitor import snapshot
+from thread_monitor import tagpaths
 
 try:
     import system
@@ -27,9 +28,14 @@ class WriteResult(object):
         self.good = 0
         self.bad_paths = []
         self.error = ""
+        # Set when the PoolTable DataSet could not be built. Kept separate
+        # from `error` on purpose: the 70 scalar tags are what the trend runs
+        # on, and they may well have written perfectly. Folding a table
+        # failure into `error` would report a healthy pipeline as dead.
+        self.dataset_error = ""
 
     def ok(self):
-        return not self.error and not self.bad_paths
+        return not self.error and not self.bad_paths and not self.dataset_error
 
     def summary(self):
         if self.error:
@@ -37,15 +43,47 @@ class WriteResult(object):
         if self.bad_paths:
             return "%d of %d writes rejected, first: %s" % (
                 len(self.bad_paths), self.attempted, self.bad_paths[0])
+        if self.dataset_error:
+            return "%d tags written, but the pool table was skipped: %s" % (
+                self.good, self.dataset_error)
         return "%d tags written" % (self.good,)
 
 
-def write_snapshot(snap, tag_system=None):
+def build_pool_dataset(snap, dataset_system=None):
+    """Turn the snapshot's per-pool rows into a real Ignition Dataset.
+
+    `system.dataset.toDataSet(headers, rows)` -- verified by reflection on
+    BOTH gateways, where it resolves to the same
+    `toDataSet(PySequence, PySequence)` overload. (There is a second overload
+    taking a single Dataset; the two-argument form is the one wanted here.)
+
+    Returns (dataset, error). A None dataset with a non-empty error means the
+    scalar write should still go ahead without it.
+    """
+    target = dataset_system
+    if target is None:
+        if system is None:
+            return None, "no `system` available -- not on a gateway"
+        target = system.dataset
+
+    headers, rows = snapshot.pool_table(snap)
+    try:
+        return target.toDataSet(headers, rows), ""
+    except:  # noqa: E722 -- bare: see CLAUDE.md #3.
+        return None, "%s" % (sys.exc_info()[1],)
+
+
+def write_snapshot(snap, tag_system=None, dataset_system=None):
     """Write one Snapshot to its tags in a single batched call.
 
-    One writeBlocking for the whole sample rather than one per tag: ~69 round
+    One writeBlocking for the whole sample rather than one per tag: ~71 round
     trips per sample at a 10 second cadence would be a self-inflicted load
     problem on the very thing being measured.
+
+    The PoolTable DataSet rides along in the SAME batch rather than getting a
+    second writeBlocking. That is not just tidiness: two calls could land
+    either side of the next sample, and then the table on screen would be
+    describing a different instant from the tiles above it.
     """
     result = WriteResult()
 
@@ -57,6 +95,16 @@ def write_snapshot(snap, tag_system=None):
         target = system.tag
 
     paths, values = snapshot.flatten_for_write(snap)
+
+    dataset, dataset_error = build_pool_dataset(snap, dataset_system)
+    if dataset is None:
+        # Skipped, not fatal. The table goes stale; the 70 trended tags -- the
+        # entire reason this project exists -- still get written.
+        result.dataset_error = dataset_error
+    else:
+        paths = paths + tagpaths.dataset_paths()
+        values = values + [dataset]
+
     result.attempted = len(paths)
 
     try:

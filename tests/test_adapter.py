@@ -5,7 +5,7 @@ whether the real ThreadMXBean and system.tag behave as stubs.py documents --
 that is what M2's live verification on a gateway is for.
 """
 from ignition_adapter import entry, jvm, stubs, tags
-from thread_monitor import snapshot, tagpaths
+from thread_monitor import snapshot, tagpaths, taxonomy
 
 
 def make_bean(pairs, **kwargs):
@@ -123,16 +123,108 @@ def test_read_never_raises_even_when_everything_fails():
 
 # --- writing --------------------------------------------------------------
 
+def write(snap, tag_system=None, dataset_system=None):
+    """write_snapshot with both doubles wired up.
+
+    The dataset double has to be passed explicitly: off-gateway there is no
+    `system`, so without it every write here would silently drop the PoolTable
+    and the tests would stop covering it.
+    """
+    if tag_system is None:
+        tag_system = stubs.FakeTagSystem()
+    if dataset_system is None:
+        dataset_system = stubs.FakeDatasetSystem()
+    return tags.write_snapshot(snap, tag_system=tag_system,
+                               dataset_system=dataset_system)
+
+
 def test_write_sends_one_batched_call(dump_81_11):
     fake = stubs.FakeTagSystem()
     snap = jvm.read(bean=make_bean(dump_81_11))
-    result = tags.write_snapshot(snap, tag_system=fake)
+    result = write(snap, tag_system=fake)
 
     assert len(fake.writes) == 1, "must be one round trip, not one per tag"
     paths, values = fake.writes[0]
     assert paths == tagpaths.all_paths()
     assert len(values) == len(paths)
     assert result.ok()
+
+
+# --- the PoolTable dataset ------------------------------------------------
+
+def test_the_pool_table_rides_in_the_same_batch(dump_81_11):
+    """One writeBlocking, not two.
+
+    Two calls could land either side of the next sample, and then the table
+    would be describing a different instant from the tiles above it.
+    """
+    fake = stubs.FakeTagSystem()
+    snap = jvm.read(bean=make_bean(dump_81_11))
+    write(snap, tag_system=fake)
+
+    assert len(fake.writes) == 1
+    paths, values = fake.writes[0]
+    dataset_path = tagpaths.gateway_tag(tagpaths.POOL_TABLE)
+    assert dataset_path in paths
+    assert paths[-1] == dataset_path, "the dataset is appended last"
+
+    dataset = values[paths.index(dataset_path)]
+    assert dataset.getRowCount() == len(taxonomy.POOL_SPECS)
+    assert dataset.getColumnCount() == len(snapshot.TABLE_HEADERS)
+
+
+def test_the_table_agrees_with_the_scalar_tags_in_the_same_write(dump_81_11):
+    """The table and the trend must never tell different stories.
+
+    Both come from one Snapshot, so this is really a test that they are still
+    built from the same one -- the failure it guards against is someone
+    sampling twice.
+    """
+    fake = stubs.FakeTagSystem()
+    snap = jvm.read(bean=make_bean(dump_81_11))
+    write(snap, tag_system=fake)
+
+    paths, values = fake.writes[0]
+    by_path = dict(zip(paths, values))
+    dataset = by_path[tagpaths.gateway_tag(tagpaths.POOL_TABLE)]
+
+    for row in dataset.rows:
+        key = row[0]
+        assert by_path[tagpaths.pool_member(key, "Count")] == row[1]
+        assert by_path[tagpaths.pool_member(key, "Blocked")] == row[3]
+
+
+def test_a_broken_dataset_call_does_not_lose_the_trend(dump_81_11):
+    """The 70 scalar tags are the point. The table is a convenience.
+
+    A dataset failure must degrade to "the table is stale", never to "the
+    monitor stopped writing".
+    """
+    class Exploding(stubs.FakeDatasetSystem):
+        def toDataSet(self, headers, data):
+            raise RuntimeError("no dataset for you")
+
+    fake = stubs.FakeTagSystem()
+    snap = jvm.read(bean=make_bean(dump_81_11))
+    result = write(snap, tag_system=fake, dataset_system=Exploding())
+
+    paths, _values = fake.writes[0]
+    assert paths == tagpaths.scalar_paths()
+    assert result.good == len(tagpaths.scalar_paths())
+    assert not result.ok()
+    assert "no dataset for you" in result.dataset_error
+    assert "pool table was skipped" in result.summary()
+
+
+def test_off_gateway_the_dataset_is_skipped_not_fatal(dump_81_11):
+    """No `system` means no system.dataset. Still writes the scalars."""
+    fake = stubs.FakeTagSystem()
+    snap = jvm.read(bean=make_bean(dump_81_11))
+    result = tags.write_snapshot(snap, tag_system=fake)
+
+    paths, _values = fake.writes[0]
+    assert paths == tagpaths.scalar_paths()
+    assert result.dataset_error
 
 
 def test_a_missing_tag_is_reported_rather_than_passing_silently(dump_81_11):
@@ -146,7 +238,7 @@ def test_a_missing_tag_is_reported_rather_than_passing_silently(dump_81_11):
     missing = tagpaths.pool_member("webserver", "Blocked")
     fake = stubs.FakeTagSystem(bad_paths=[missing])
     snap = jvm.read(bean=make_bean(dump_81_11))
-    result = tags.write_snapshot(snap, tag_system=fake)
+    result = write(snap, tag_system=fake)
 
     assert not result.ok()
     assert len(result.bad_paths) == 1
@@ -182,7 +274,7 @@ def test_failed_probes_are_written_as_minus_one_not_omitted(dump_81_11):
 
     fake = stubs.FakeTagSystem()
     snap = jvm.read(bean=NoPeak(dump_81_11))
-    tags.write_snapshot(snap, tag_system=fake)
+    write(snap, tag_system=fake)
 
     paths, values = fake.writes[0]
     by_path = dict(zip(paths, values))

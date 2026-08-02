@@ -122,6 +122,8 @@ def _fault_key(result):
         return "error:" + result.error
     if result.bad_paths:
         return "rejected:%d" % (len(result.bad_paths),)
+    if result.dataset_error:
+        return "dataset:" + result.dataset_error
     return "ok"
 
 
@@ -232,7 +234,7 @@ def provision(history_provider):
     against the very gateway being measured.
 
     Do not trust this function's own report alone. The real proof is the next
-    timer sample: it logs `69 tags written` instead of `69 of 69 writes
+    timer sample: it logs `71 tags written` instead of `71 of 71 writes
     rejected`, and that signal comes from a code path that was already
     working before any of this existed.
     """

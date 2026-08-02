@@ -95,8 +95,10 @@ def _int_or_default(value, default):
 def flatten_for_write(snap):
     """Return (paths, values) ready for system.tag.writeBlocking.
 
-    One batched write per sample. Order matches tagpaths.all_paths() so the
-    two cannot drift apart without a test failing.
+    Order matches tagpaths.scalar_paths() so the two cannot drift apart
+    without a test failing. The PoolTable DataSet is NOT here -- building it
+    needs system.dataset.toDataSet, which this package may not touch; the
+    adapter appends it to this same batch. See pool_table() below.
 
     Unset adapter fields are written as -1 rather than skipped. A gap in the
     write list would silently leave the previous sample's value on the tag,
@@ -139,6 +141,47 @@ def flatten_for_write(snap):
     values.append(", ".join(snap.unmatched))
 
     return paths, values
+
+
+# Column headers for the Perspective table.
+#
+# These become the DataSet's column names, and with no `props.columns` on the
+# table component the component derives its headers from them -- so this list
+# is the only place the table's headers are written. Human-spaced ("Timed
+# Waiting") rather than tag-member-spelled ("TimedWaiting") because nothing
+# downstream matches on them: they are read by people, not by code.
+TABLE_HEADERS = ["Pool", "Count", "Runnable", "Blocked", "Waiting",
+                 "Timed Waiting"]
+
+
+def pool_table(snap):
+    """Return (headers, rows) for the per-pool current-state table.
+
+    Pure: lists of strings and ints. The adapter turns this into a real
+    Dataset with system.dataset.toDataSet, because nothing in this package may
+    touch system.* -- see tagpaths.scalar_paths for why that split exists.
+
+    Row order is catalog order, the same order as `snap.pools`, which is also
+    the Power Chart's legend order. Deliberately NOT sorted by count: sorting
+    would put the busiest pool on top, but the rows would then reshuffle every
+    time two pools swapped places, and a table that rearranges itself under
+    someone reading it is worse than one where the interesting row is third.
+
+    The first column is the pool KEY, not its label. The key is what appears
+    in the chart legend and in the tag path, so a row here can be traced to
+    both without a translation step.
+    """
+    rows = []
+    for entry in snap.pools:
+        rows.append([
+            entry.key,
+            entry.total,
+            entry.state("RUNNABLE"),
+            entry.state("BLOCKED"),
+            entry.state("WAITING"),
+            entry.state("TIMED_WAITING"),
+        ])
+    return TABLE_HEADERS, rows
 
 
 def format_report(snap):

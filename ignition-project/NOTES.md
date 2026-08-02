@@ -148,7 +148,7 @@ working, which is the same trap `wait_for_ingest()` exists to catch on 8.1.
 With the library deployed and the timer running, the gateway logged:
 
 ```
-W [GatewayThreadMonitor]: 69 of 69 writes rejected,
+W [GatewayThreadMonitor]: 71 of 71 writes rejected,
   first: [default]GatewayHealth/Threads/Pools/webserver/Count (Bad_NotFound)
   (110 threads, 31ms)
 ```

@@ -154,8 +154,11 @@ def test_history_is_on_for_the_metric_tags_and_off_for_diagnostics():
     expected = (len(taxonomy.POOL_SPECS) * len(tagpaths.UDT_MEMBERS)
                 + len(tagpaths.GATEWAY_TAGS))
     assert len(historized) == expected
-    assert len(historized) == len(tagpaths.all_paths()) - len(
-        tagpaths.DIAGNOSTIC_TAGS)
+    # Everything else is created but deliberately not trended: the five
+    # Diagnostics tags, and the PoolTable DataSet.
+    assert len(historized) == (len(tagpaths.all_paths())
+                               - len(tagpaths.DIAGNOSTIC_TAGS)
+                               - len(tagpaths.DATASET_TAGS))
 
     for path in tagpaths.all_paths():
         tag = fake.tag_at(path)

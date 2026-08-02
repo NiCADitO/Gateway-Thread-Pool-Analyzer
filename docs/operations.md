@@ -58,7 +58,7 @@ docker exec 81-GW2-1 sh -c 'ls /usr/local/bin/ignition/data/config/resources/cor
 ```
 
 In this lab that returns `PostgreSQLHistorian`, whose `config.json` names the
-datasource `PostgreSQL`. Passing the datasource name instead would create 64
+datasource `PostgreSQL`. Passing the datasource name instead would create 65
 tags with a provider that does not exist — and they would look historized.
 
 ### A gateway with no historian
@@ -67,10 +67,10 @@ tags with a provider that does not exist — and they would look historized.
 ... --provision --history-provider NONE
 ```
 
-Creates all 69 tags with live values and no history. The log says
+Creates all 71 tags with live values and no history. The log says
 `(NO HISTORY -- live values only)` so it cannot be mistaken for a gateway that
 is trending. A *blank* provider is still refused — blank is what an unset
-config looks like, and treating it as "no history wanted" is how you get 64
+config looks like, and treating it as "no history wanted" is how you get 65
 tags that look historized and store nothing.
 
 ---
@@ -88,13 +88,13 @@ docker logs <container> 2>&1 | grep GatewayThreadMonitor
 Healthy looks like this, once every 5 minutes:
 
 ```
-I [GatewayThreadMonitor]: sample 30: 69 tags written (105 threads, 4ms)
+I [GatewayThreadMonitor]: sample 30: 71 tags written (105 threads, 4ms)
 ```
 
 Not-yet-provisioned looks like this:
 
 ```
-W [GatewayThreadMonitor]: 69 of 69 writes rejected, first:
+W [GatewayThreadMonitor]: 71 of 71 writes rejected, first:
   [default]GatewayHealth/Threads/Pools/webserver/Count (Bad_NotFound)
 ```
 
@@ -123,10 +123,11 @@ healthy while the historian stores nothing.
 docker exec postgresct psql -U ignition -d test -c "SELECT te.tagpath, count(*) AS rows, min(d.intvalue) AS lo, max(d.intvalue) AS hi, to_timestamp(max(d.t_stamp)/1000) AS last FROM sqlth_1_data d JOIN sqlth_te te ON d.tagid=te.id WHERE te.tagpath ILIKE 'gatewayhealth%' GROUP BY 1 ORDER BY 2 DESC LIMIT 15;"
 ```
 
-Expect **64** distinct series — not 69. The five `Diagnostics` tags are
+Expect **65** distinct series — not 71. The five `Diagnostics` tags and the
+`PoolTable` DataSet are
 deliberately not historized: `LastSampleTime` is a timestamp so it changes
 every single sample by definition, and historizing it plus `SampleDurationMs`
-would add ~12,960 rows/day against ~11,109 for all 64 real metrics combined —
+would add ~12,960 rows/day against ~11,109 for all 65 real metrics combined —
 54% of rows carrying nothing trendable, and it would degrade on-change back
 into fixed-periodic.
 
@@ -232,6 +233,43 @@ are step functions, and history is stored with `historicalDeadbandStyle:
 Discrete` for the same reason: interpolation would draw a straight ramp
 between two on-change points up to five minutes apart, inventing values that
 never existed and turning a spike into a gentle slope.
+
+### The per-pool table
+
+Below the two charts, `build_view.py` also wires up a Table showing every
+pool's **current** state — count and the four `Thread.State` breakdowns. The
+charts answer "when did this change"; the table answers "what is it right
+now", which is the question you actually have first.
+
+It is fed by one tag, `GatewayHealth/Threads/PoolTable`, whose dataType is
+`DataSet`. The sampler builds it with `system.dataset.toDataSet(headers, rows)`
+and writes it **in the same `writeBlocking` batch** as the 70 scalars — two
+calls could land either side of the next sample, and then the table would be
+describing a different instant from the tiles above it.
+
+Adding a `PoolSpec` adds a row automatically. There is no column list to
+maintain: `props.columns` is left unset, so the table takes its headers from
+the dataset, which comes from `snapshot.TABLE_HEADERS`.
+
+**Two traps, both of which produce a table that looks broken and logs nothing.**
+
+*Per-cell bindings do not work.* Binding `props.data[<row>].<column>` writes a
+perfectly valid file — right row count, right column names — and renders the
+headers with **zero rows**, with no error anywhere. That is why the data goes
+through a DataSet tag instead: `props.data` bound to a tag is the same binding
+shape the Designer writes for a label, and it is verified.
+
+*`virtualized` must be off.* It defaults to **true**, and the implementation
+measures its viewport once on mount. This table sits at y=790 in a fixed coord
+container, so on a 720px-tall viewport it mounts below the fold, measures
+itself as `0x0`, and renders no rows — and it never re-measures when you
+scroll to it. Symptom: correct headers, `props.data` holding all twelve rows
+in the browser's own React tree, and a `ReactVirtualized__Grid` of height 0.
+Observed identically on 2.1.11 and 3.3.8. Twelve rows do not need virtualizing.
+
+If the table is empty, check in this order: the tag exists and has a value →
+the timer log says `71 tags written` not `70` → `props.virtualized` is `false`
+in the deployed `view.json`.
 
 ### Reading it
 

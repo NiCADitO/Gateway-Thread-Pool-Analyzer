@@ -20,6 +20,11 @@ WHAT IT CHANGES, and why each one is safe:
                               curveMonotoneX|curveMonotoneY|curveNatural.
   pens[].display.styles.*     colours, already present at every style key.
   pens[].name                 string, already present.
+  table props.data            typed ["array","dataset"] by the component's
+                              own schema in ia.components.json, read out of
+                              perspective-common on BOTH gateways. Bound to a
+                              DataSet tag using the same binding shape the
+                              Designer wrote for the labels.
 
 WHAT IT DOES NOT DO: add `axes` or `plots` arrays. Those are real sibling
 props -- the bundle lists Axes|Pens|Plots|Columns as settings categories --
@@ -50,6 +55,10 @@ import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
+
+from thread_monitor import tagpaths, taxonomy  # noqa: E402 -- after sys.path
+
 PROJECT_DIR = ("/usr/local/bin/ignition/data/projects/%s/"
                "com.inductiveautomation.perspective/views")
 
@@ -152,6 +161,21 @@ TABLE = "ia.display.table"
 MAIN_HEIGHT = 360
 BLOCKED_HEIGHT = 150
 PANEL_GAP = 12
+
+# One content width for every panel, on both gateways.
+#
+# Also fixed rather than read from the file, for the same reason the heights
+# are. The Designer left 8.1's chart at 1222 and 8.3's at 1343, and 1343 in a
+# fixed-mode coord container overflows a 1280 viewport -- so the 8.3 dashboard
+# had a horizontal scrollbar and a chart running off the right edge, while 8.1
+# looked fine from identical code.
+CONTENT_WIDTH = 1222
+
+# Deterministic table geometry. `rows.height` defaults to "auto", which makes
+# the component's height depend on its content -- fine in isolation, wrong in
+# a coord container where the surrounding layout is computed in pixels.
+TABLE_ROW_HEIGHT = 28
+TABLE_HEADER_HEIGHT = 38
 
 # Verified from the module's own destructuring of the visibility object:
 #   let {showPenControlDisplay: g, showDateRangeSelector: y,
@@ -316,7 +340,7 @@ def build(view, provider, drv):
     # small vertical range makes a 0 -> 2 change enormous rather than a
     # wobble lost against a count axis that runs to 120.
     pos = dict(chart.get("position") or {})
-    width = pos.get("width", 1222)
+    width = CONTENT_WIDTH
 
     # Deterministic vertical stack. Every y is derived from the one above it,
     # so the whole layout moves together and nothing can drift out of step.
@@ -368,27 +392,15 @@ def build(view, provider, drv):
         TILE_LEFT, layout["head2_y"], layout["width"]))
 
     # Table below the charts, sized to the pool list.
-    import sys as _sys
-    _sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
-    from thread_monitor import taxonomy as _tax
-    pool_keys = _tax.spec_keys()
-    cells = build_table(root, "[default]GatewayHealth/Threads/", pool_keys)
-    has_table = False
-    for child in root["children"]:
-        if child.get("type") == TABLE:
-            has_table = True
-            child["position"] = {
-                "x": TILE_LEFT, "y": layout["table_y"],
-                "width": layout["width"],
-                "height": 44 + 26 * len(pool_keys)}
-    if has_table:
+    rows = build_table(root, TILE_LEFT, layout["table_y"], layout["width"])
+    if rows:
         chrome.extend(panel_header(
             label_template, "table", "Current state by pool",
             "The right-now answer, so the chart is only for history.",
             TILE_LEFT, layout["table_head_y"], layout["width"]))
 
     root["children"] = chrome + list(root["children"])
-    return len(count_pens) + len(blocked_pens), tiles, warning, cells
+    return len(count_pens) + len(blocked_pens), tiles, warning, rows
 
 
 LABEL = "ia.display.label"
@@ -613,24 +625,67 @@ def build_legend(template, x, y, width):
     return made
 
 
-def build_table(root, provider_root, pool_keys):
-    """Turn the Designer's stock table into a live per-pool state grid.
+# Table styling, in the same palette as the tile cards so the page reads as
+# one surface rather than three widgets that happen to share a background.
+TABLE_STYLE = {
+    "backgroundColor": "#1A1F28",
+    "border": "1px solid #262D38",
+    "borderRadius": "8px",
+}
+TABLE_HEADER_STYLE = {
+    "backgroundColor": "#12161C",
+    "color": "#8B94A3",
+    "fontSize": "10px",
+    "fontWeight": 600,
+    "letterSpacing": "0.08em",
+    "textTransform": "uppercase",
+}
+TABLE_BODY_STYLE = {
+    "color": "#D3D9E2",
+    "fontSize": "12px",
+}
+TABLE_STRIPE_EVEN = "#1A1F28"
+TABLE_STRIPE_ODD = "#171C24"
+TABLE_HIGHLIGHT = "#222A36"
 
-    Perspective ships tables with city/country/population sample data, which
-    stays there until something replaces it.
+# Shown before the first sample lands, in place of an empty box that reads as
+# a broken component.
+TABLE_EMPTY_TEXT = ("No sample yet -- the gateway timer writes "
+                    "GatewayHealth/Threads/PoolTable every 10 seconds.")
+
+
+def build_table(root, x, y, width):
+    """Point the Designer's table at the PoolTable DataSet tag.
+
+    HOW THIS ARRIVED AT A DATASET, because the wrong route looks right.
 
     TRIED AND REVERTED: binding each cell via a `props.data[<row>].<column>`
     prop path. The file wrote correctly -- 12 rows, 60 bindings, right column
     names -- and Perspective rendered the headers and NO ROWS, with no error
-    anywhere. Prop-path bindings into an array element are not a shape this
-    project ever verified, and it failed exactly the way CLAUDE.md #5 says an
-    unverified shape fails: silently, and not diagnosable from the file.
+    anywhere. That is exactly how CLAUDE.md #5 says an unverified shape fails:
+    silently, and not diagnosable from the file.
 
-    So this now only strips the stock city/country/population sample data and
-    leaves the table empty rather than lying. Making it live needs `props.data`
-    bound to a single DataSet -- most likely a DataSet-typed tag the sampler
-    writes each cycle, which would use only the tag binding already verified.
-    That is a change to the tag set, not to this script.
+    What replaced it uses only shapes this project has already proven:
+
+      props.data          the component's own schema (ia.components.json,
+                          read out of perspective-common on BOTH gateways)
+                          types it as ["array","dataset"], described as "Can
+                          be a dataset, an array of arrays, or an array of
+                          objects". Identical on 2.1.11 and 3.3.8.
+      the tag binding     byte-identical in shape to the one the stat tiles
+                          use for props.text, which is Designer-written and
+                          demonstrably works.
+      props.columns       left unset. It defaults to [] and the component
+                          derives its columns from the dataset, so the header
+                          text comes from snapshot.TABLE_HEADERS and there is
+                          no second list to keep in step.
+
+    The Designer ships every new table with city/country/population sample
+    data, which persists in the file until something replaces it -- that is
+    the "table still showing sample data" symptom, not a binding failure.
+    Setting props.data to [] here matters even though the binding overwrites
+    it at runtime: if the binding ever breaks, an empty table is an honest
+    signal, whereas Tokyo and Jakarta look like a working screen.
     """
     table = None
     for child in root.get("children") or []:
@@ -638,19 +693,86 @@ def build_table(root, provider_root, pool_keys):
             table = child
             break
     if table is None:
-        return 0
+        raise SystemExit(
+            "no %s in this view -- drop a Table component anywhere in the "
+            "Designer and re-run. This script edits the Designer's node "
+            "rather than synthesising one (CLAUDE.md #5)." % (TABLE,))
+
+    pool_keys = taxonomy.spec_keys()
 
     props = dict(table.get("props") or {})
     props["data"] = []
+    props["style"] = TABLE_STYLE
+    props["headerStyle"] = TABLE_HEADER_STYLE
+    props["bodyStyle"] = TABLE_BODY_STYLE
+
+    # OFF, and this is the difference between twelve rows and none.
+    #
+    # `virtualized` defaults to True: "only the rows needed at any given time
+    # are displayed on screen". The implementation is react-virtualized, which
+    # measures its viewport once on mount. This table sits at y=790 in a fixed
+    # coord container, so on a 720px-tall viewport it mounts BELOW THE FOLD --
+    # the grid measures itself as 0x0 and renders no rows, and it never
+    # re-measures when you scroll to it.
+    #
+    # Observed identically on 2.1.11 and 3.3.8: correct column headers,
+    # props.data holding all twelve rows, and a ReactVirtualized__Grid of
+    # height 0 / width 0. Nothing in view.json looked wrong, and nothing was
+    # logged -- the data was arriving the whole time.
+    #
+    # Twelve rows do not need virtualizing. Turning it off renders them all
+    # eagerly, which is both correct and cheaper than the machinery it removes.
+    props["virtualized"] = False
+
+    rows = dict(props.get("rows") or {})
+    rows["height"] = TABLE_ROW_HEIGHT
+    rows["striped"] = {
+        "enabled": True,
+        "color": {"even": TABLE_STRIPE_EVEN, "odd": TABLE_STRIPE_ODD},
+    }
+    rows["highlight"] = {"enabled": True, "color": TABLE_HIGHLIGHT}
+    props["rows"] = rows
+
+    # Twelve rows against a default page size of 25: the pager could only ever
+    # say "1-12 of 12" and take up 40px doing it.
+    pager = dict(props.get("pager") or {})
+    pager["bottom"] = False
+    pager["top"] = False
+    props["pager"] = pager
+
+    empty = dict(props.get("emptyMessage") or {})
+    no_data = dict(empty.get("noData") or {})
+    no_data["text"] = TABLE_EMPTY_TEXT
+    no_data["textStyle"] = {"color": "#6C7583", "fontSize": "11px"}
+    empty["noData"] = no_data
+    props["emptyMessage"] = empty
+
     table["props"] = props
 
     config = dict(table.get("propConfig") or {})
+    # Drop the per-cell bindings the reverted approach left behind, so a view
+    # that still carries them does not fight the dataset binding.
     for existing in list(config.keys()):
         if existing.startswith("props.data["):
             del config[existing]
+    config["props.data"] = {
+        "binding": {
+            "type": "tag",
+            "config": {
+                "fallbackDelay": 2.5,
+                "mode": "direct",
+                "publishInitial": False,
+                "tagPath": tagpaths.gateway_tag(tagpaths.POOL_TABLE),
+            },
+        }
+    }
     table["propConfig"] = config
 
-    return 0
+    table["position"] = {
+        "x": x, "y": y, "width": width,
+        "height": TABLE_HEADER_HEIGHT + TABLE_ROW_HEIGHT * len(pool_keys) + 2,
+    }
+    return len(pool_keys)
 
 
 def find_parent(node, target):
@@ -712,12 +834,12 @@ def main():
     view, remote = read_view(args.container, args.project, args.view)
     backup(args.container, remote)
 
-    pens, tiles, warning, cells = build(view, args.provider, args.drv)
+    pens, tiles, warning, rows = build(view, args.provider, args.drv)
     write_view(args.container, remote, view)
 
-    print("%s/%s: %d pens across 2 panels, %d tiles, %d table cells, "
+    print("%s/%s: %d pens across 2 panels, %d tiles, %d table rows, "
           "provider=%s drv=%s"
-          % (args.container, args.view, pens, tiles, cells, args.provider,
+          % (args.container, args.view, pens, tiles, rows, args.provider,
              args.drv))
     if warning:
         print("  WARNING: %s" % (warning,))

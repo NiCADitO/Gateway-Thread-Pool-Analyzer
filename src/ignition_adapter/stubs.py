@@ -141,7 +141,7 @@ system.tag.exists(tagPath)
 
     Note it must NOT be used as a write-probe substitute: an earlier design
     proposed proving existence by writing a sentinel, which would have
-    scribbled -1 into all 64 live metric tags on every provisioning run.
+    scribbled -1 into all 65 live metric tags on every provisioning run.
 
 system.tag.getConfiguration(basePath, recursive)
     -> list of dicts describing the tags at basePath.
@@ -198,6 +198,28 @@ Other system.* calls
 
 system.date.now()
     -> java.util.Date. Used only for the LastSampleTime diagnostic tag.
+
+system.dataset.toDataSet(headers, data)
+    -> com.inductiveautomation.ignition.common.Dataset
+
+    VERIFIED BY REFLECTION on both gateways. DatasetUtilities exposes exactly
+    two overloads, and they resolve identically on 2.1.11 and 3.3.8:
+
+        toDataSet(org.python.core.PySequence, org.python.core.PySequence)
+        toDataSet(Dataset)          <- 8.1 types this as its PyDataSet subclass
+
+    The TWO-ARGUMENT form is the one this project wants: headers as a sequence
+    of strings, data as a sequence of row sequences. Both args are PySequence,
+    so a Python list of lists is exactly right and no Java array conversion is
+    needed.
+
+    Column TYPES are inferred from the values, not declared. That is why
+    snapshot.pool_table() returns real ints rather than pre-formatted strings:
+    a column of strings would sort "10" before "9" in the Perspective table.
+
+    The resulting Dataset is written to a tag whose dataType is DataSet -- see
+    the enum note under `dataType` above, where DataSet is a confirmed
+    constant on both gateways.
 
 system.util.getLogger(name)
     -> LoggerEx, with .trace/.debug/.info/.warn/.error(String).
@@ -367,6 +389,47 @@ class FakeTagSystem(object):
         for _tag in tags:
             qualities.append(FakeQuality(True))
         return qualities
+
+
+class FakeDataset(object):
+    """Stands in for a com.inductiveautomation.ignition.common.Dataset.
+
+    Only carries what the tests need to assert on. It deliberately does NOT
+    try to imitate Dataset's API -- nothing in this project reads a dataset
+    back, it only builds one and hands it to writeBlocking.
+    """
+
+    def __init__(self, headers, rows):
+        self.headers = list(headers)
+        # Written out rather than a comprehension: stubs.py lives under src/,
+        # so it is Jython 2.7 like everything else there (CLAUDE.md #2).
+        self.rows = []
+        for row in rows:
+            self.rows.append(list(row))
+
+    def getColumnCount(self):
+        return len(self.headers)
+
+    def getRowCount(self):
+        return len(self.rows)
+
+    def __repr__(self):
+        return "FakeDataset(%dx%d)" % (len(self.rows), len(self.headers))
+
+
+class FakeDatasetSystem(object):
+    """Stands in for system.dataset."""
+
+    def toDataSet(self, headers, data):
+        # The real one raises if a row is the wrong width, so this does too --
+        # a ragged dataset is the mistake most likely to be made here, and it
+        # should fail in the test suite rather than on a gateway.
+        for row in data:
+            if len(row) != len(headers):
+                raise ValueError(
+                    "row has %d values, expected %d" % (len(row),
+                                                        len(headers)))
+        return FakeDataset(headers, data)
 
 
 class FakeQuality(object):

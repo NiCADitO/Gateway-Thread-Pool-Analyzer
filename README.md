@@ -21,7 +21,7 @@ own tags.
 | **M0** Thread-name discovery | **done** | Real thread names captured off three live gateways — 8.1.11, 8.1.48 and 8.3.8. The catalog is evidence-based, not guessed. |
 | **M1** Pure counting core | **done** | 49 tests, no gateway required. `other` is empty on all three real gateways. |
 | **M2** Ignition adapter | **done** | Runs under each gateway's real Jython against a real `ThreadMXBean` on both 8.1.11 and 8.3.8. Writes nothing. |
-| **M3** Tag provisioning | **done** | 69 tags created and independently verified with `system.tag.exists`. Idempotent. |
+| **M3** Tag provisioning | **done** | 71 tags created and independently verified with `system.tag.exists`. Idempotent. |
 | **M4** Gateway timer | **done** | 10 s fixed delay in Gateway scope on both gateways. 3–7 ms/sample. |
 | **M5** History | **done** | 64 series writing to Postgres, on-change. Power Chart is a Designer step — see below. |
 | **M6** Deploy harness | **done** | One command per gateway, both versions. |
