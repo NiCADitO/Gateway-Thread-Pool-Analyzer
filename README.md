@@ -225,8 +225,6 @@ This started from [a forum post](https://forum.inductiveautomation.com/t/getting
 that counts `webserver` threads with `ManagementFactory.getThreadMXBean()`. The
 idea is right. This project rebuilds around it in four ways:
 
-- It uses `system.tag.writeBlocking` instead of the deprecated
-  `system.tag.write`.
 - It uses a catalog of pools instead of one hardcoded prefix.
 - It runs in Gateway scope. The original used a Perspective component
   reference (`self.parent.parent`), which cannot resolve in a gateway timer at
