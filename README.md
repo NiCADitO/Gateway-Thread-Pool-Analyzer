@@ -272,7 +272,7 @@ module is still warming up.
 
 This started from [a forum post](https://forum.inductiveautomation.com/t/getting-threads-from-the-gateway/89447/13)
 that counts `webserver` threads with `ManagementFactory.getThreadMXBean()`. The
-idea is right. This project rebuilds around it in four ways:
+idea is right. This project rebuilds around it in three ways:
 
 - It uses a catalog of pools instead of one hardcoded prefix.
 - It runs in Gateway scope. The original used a Perspective component
