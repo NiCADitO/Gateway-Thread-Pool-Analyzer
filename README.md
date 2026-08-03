@@ -251,9 +251,3 @@ If you are adding a pool bucket, run `python scripts/discover_threads.py`
 against your gateway first and commit the dump as a fixture. The test suite
 picks up any new `.tsv` in `tests/fixtures/` automatically, so your gateway's
 thread names become part of the corpus that keeps the catalog honest.
-
-## License
-
-No license file is set yet, so default copyright applies and no reuse rights
-are granted. Add a `LICENSE` file before sharing this outside your
-organisation.
