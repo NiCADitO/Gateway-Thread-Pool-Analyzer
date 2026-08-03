@@ -52,16 +52,50 @@ Chart.
 
 ## Install and run
 
-You need Python 3 on the machine you run the scripts from, and Docker access
-to the gateway container. The gateway itself needs no extra modules.
+Before you start you need four things:
 
-Run the test suite. It needs no gateway, no containers, and no database:
+- **Python 3** on the machine you run the scripts from. The gateway needs no
+  extra modules.
+- **`docker exec` access** to the gateway container. Everything below drives
+  the gateway through Docker.
+- **An Ignition project that already exists.** Create an empty one in the
+  Designer. These scripts refuse to invent `project.json`, so deploying into a
+  name that does not exist stops with an error rather than creating an orphan
+  directory the gateway never reads.
+- **Your gateway's tag history provider name.** Step 2 shows how to find it.
+
+Every `81-GW1-1`, `81-GW2-1` and provider name below is an example from the
+lab this was built against. Substitute your own.
+
+**1. Install the test dependency and run the suite.** The suite needs no
+gateway, no containers and no database, so this also proves your checkout is
+sound before you touch a gateway.
 
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Deploy to an 8.1 gateway, creating all 81 tags:
+Expect `137 passed`.
+
+**2. Find your tag history provider name.** Do not reuse the names below. If
+you pass a provider that does not exist, provisioning still succeeds and
+creates 75 tags that look historized and silently store nothing.
+
+It is the *historian provider*, not the datasource, and the two are usually
+spelled differently. On 8.3 you can read it off disk:
+
+```bash
+docker exec 81-GW2-1 sh -c 'ls /usr/local/bin/ignition/data/config/resources/core/com.inductiveautomation.historian/historian-provider/'
+```
+
+On 8.1, read it from the gateway web UI under Config, Tags, History Providers.
+If the gateway has no historian at all, pass `--history-provider NONE`. That
+creates the tags with live values only, and the log says
+`(NO HISTORY -- live values only)` so you cannot mistake it for a gateway that
+is trending.
+
+**3. Deploy.** On Ignition 8.1:
 
 ```bash
 python scripts/build_project_library.py --deploy --provision \
@@ -69,8 +103,10 @@ python scripts/build_project_library.py --deploy --provision \
   --container 81-GW1-1 --project Gateway_Thread_Pool_Analyzer_and_Historizer
 ```
 
-8.3 needs two extra flags, because it does not watch its project directory and
-it can accept a generated timer script:
+On 8.3, add `--restart` and `--with-timer`. 8.3 does not watch its project
+directory, so without `--restart` the files land on disk, the push reports
+success, and the gateway keeps running the old code. `--with-timer` generates
+the timer script, which works on 8.3 and does not work on 8.1.
 
 ```bash
 python scripts/build_project_library.py --deploy --restart --with-timer --provision \
@@ -78,25 +114,38 @@ python scripts/build_project_library.py --deploy --restart --with-timer --provis
   --container 81-GW2-1 --project Gateway_Thread_Pool_Analyzer_and_Historizer
 ```
 
-On 8.1 you must also create the gateway timer event script once, by hand in
-the Designer. 8.1 stores event scripts in a compressed binary file that cannot
-be generated safely.
+**4. On 8.1 only, create the timer script by hand.** Do this once per gateway,
+ever. 8.1 stores gateway event scripts in a single compressed binary file that
+cannot be generated safely, so `--with-timer` does not work there. In the
+Designer, go to Gateway Events, Timer, and add `threadMonitor` at **10000 ms**,
+**Fixed Delay**, shared thread, with this body:
 
-Confirm it is working:
+```python
+from ignition_adapter import entry
+entry.sample_and_write()
+```
+
+That body never changes. All the real code lives in the project library, which
+the deploy script does push.
+
+**5. Confirm it is working.**
 
 ```bash
 docker logs 81-GW1-1 2>&1 | grep GatewayThreadMonitor
 ```
 
-A healthy gateway logs this every five minutes:
+A healthy gateway logs one line every five minutes:
 
 ```
 I [GatewayThreadMonitor]: sample 30: 81 tags written (115 threads, 4ms)
 ```
 
-[docs/operations.md](docs/operations.md) covers the Designer step, the
-Perspective dashboard, gateways without a historian, and how to prove history
-rows are really landing.
+If it says `81 of 81 writes rejected`, the tags do not exist yet, so the
+deploy ran without `--provision`.
+
+[docs/operations.md](docs/operations.md) covers the Perspective dashboard,
+re-provisioning, and how to prove history rows are really reaching the
+database.
 
 ## The pool catalog
 

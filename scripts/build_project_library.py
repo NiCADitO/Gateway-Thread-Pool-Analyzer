@@ -179,18 +179,56 @@ def _project_path(project):
     return "%s/projects/%s" % (GATEWAY_DATA, project)
 
 
+def check_container(container):
+    """Confirm docker can actually reach the container.
+
+    This exists because the project check below reads only stdout. When docker
+    is not running, or the container name is wrong, `docker exec` writes to
+    stderr and stdout comes back empty -- which is indistinguishable from "the
+    project is missing". The script then told you to go create a project in
+    the Designer that already existed, while the real problem was a stopped
+    Docker Desktop. Observed exactly that after a host reboot.
+
+    Checked separately, and first, so each failure names its own cause.
+    """
+    # Bounded, unlike every other docker call here. A `docker exec true` on a
+    # healthy gateway returns in well under a second; if it has not answered
+    # in 30 there is no useful sense in which it is going to. Docker Desktop
+    # mid-start does not refuse the connection, it just never answers, so
+    # without this the script hangs silently forever with nothing printed.
+    try:
+        result = subprocess.run(["docker", "exec", container, "true"],
+                                capture_output=True, text=True,
+                                errors="replace", timeout=30)
+    except subprocess.TimeoutExpired:
+        raise SystemExit(
+            "docker did not respond within 30s while checking container "
+            "'%s'.\nDocker Desktop is probably still starting. Wait for "
+            "`docker ps` to return, then re-run." % (container,))
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip() or "no error text from docker"
+        raise SystemExit(
+            "cannot reach container '%s'.\n  %s\n"
+            "Check that Docker is running and the name is right: docker ps"
+            % (container, detail.splitlines()[0]))
+
+
 def check_project(container, project):
     """Fail early and clearly if the project does not exist.
 
     Pushing into a nonexistent project silently creates an orphan directory
     the gateway never reads, and the symptom is "my code does not run" with
     every file present on disk.
+
+    Only reached once check_container has proved docker works, so an empty
+    result here really does mean the project is absent.
     """
+    check_container(container)
     path = _project_path(project)
     result = subprocess.run(
         ["docker", "exec", container, "sh", "-c",
          "test -f '%s/project.json' && echo OK" % (path,)],
-        capture_output=True, text=True)
+        capture_output=True, text=True, errors="replace")
     if "OK" not in result.stdout:
         listing = subprocess.run(
             ["docker", "exec", container, "sh", "-c",
