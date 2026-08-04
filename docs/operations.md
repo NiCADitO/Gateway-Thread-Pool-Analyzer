@@ -70,7 +70,7 @@ tags with a provider that does not exist — and they would look historized.
 Creates all 81 tags with live values and no history. The log says
 `(NO HISTORY -- live values only)` so it cannot be mistaken for a gateway that
 is trending. A *blank* provider is still refused — blank is what an unset
-config looks like, and treating it as "no history wanted" is how you get 65
+config looks like, and treating it as "no history wanted" is how you get 75
 tags that look historized and store nothing.
 
 ---
@@ -324,12 +324,12 @@ through a DataSet tag instead: `props.data` bound to a tag is the same binding
 shape the Designer writes for a label, and it is verified.
 
 *`virtualized` must be off.* It defaults to **true**, and the implementation
-measures its viewport once on mount. This table sits at y=790 in a fixed coord
+measures its viewport once on mount. This table sits at y=850 in a fixed coord
 container, so on a 720px-tall viewport it mounts below the fold, measures
 itself as `0x0`, and renders no rows — and it never re-measures when you
-scroll to it. Symptom: correct headers, `props.data` holding all twelve rows
+scroll to it. Symptom: correct headers, `props.data` holding all fourteen rows
 in the browser's own React tree, and a `ReactVirtualized__Grid` of height 0.
-Observed identically on 2.1.11 and 3.3.8. Twelve rows do not need virtualizing.
+Observed identically on 2.1.11 and 3.3.8. Fourteen rows do not need virtualizing.
 
 If the table is empty, check in this order: the tag exists and has a value →
 the timer log says `81 tags written` not `80` → `props.virtualized` is `false`
