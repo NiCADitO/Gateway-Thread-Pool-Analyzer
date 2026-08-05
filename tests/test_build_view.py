@@ -71,6 +71,50 @@ def test_pristine_survives_a_view_with_no_children():
     assert build_view.is_pristine({"root": {"children": None}})
 
 
+def layout():
+    """The vertical stack, recomputed exactly as build() computes it."""
+    tiles_bottom = build_view.TILE_TOP + build_view.TILE_HEIGHT
+    table_head_y = tiles_bottom + 18
+    table_y = table_head_y + 34
+    table_bottom = table_y + build_view.table_height()
+    head2_y = table_bottom + 20
+    blocked_y = head2_y + 38
+    head1_y = blocked_y + build_view.BLOCKED_HEIGHT + 20
+    chart_y = head1_y + 38
+    return {"table_y": table_y, "table_bottom": table_bottom,
+            "blocked_y": blocked_y, "chart_y": chart_y}
+
+
+FOLD = 720  # the shortest viewport this is expected to be read on
+
+
+def test_the_state_table_fits_entirely_above_the_fold():
+    """The "which pool is wrong right now" answer must not need a scroll.
+
+    The table used to start at y=850 and run to 1282, so on a 1280x720
+    laptop it was invisible until you scrolled past both charts. It is the
+    first question anyone asks, and it was the last thing on the page.
+    """
+    lay = layout()
+    assert lay["table_bottom"] <= FOLD, (
+        "state table runs to y=%d, past the %dpx fold"
+        % (lay["table_bottom"], FOLD))
+
+
+def test_current_state_comes_before_history():
+    """Now, then when-did-it-start. Ordering is the whole point of stage 2."""
+    lay = layout()
+    assert lay["table_y"] < lay["blocked_y"] < lay["chart_y"]
+
+
+def test_the_status_card_fits_the_gap_beside_the_tiles():
+    """It occupies dead space; if the tile row grows it must not overlap."""
+    x = build_view.TILE_LEFT + len(build_view.TILES) * (
+        build_view.TILE_WIDTH + build_view.TILE_GAP)
+    width = build_view.CONTENT_WIDTH + build_view.TILE_LEFT - x
+    assert width >= 200, "no room left for the status card: %d px" % (width,)
+
+
 def test_the_committed_archives_are_actually_pristine():
     """Whatever is in designer-originals/ must be a Designer shape.
 

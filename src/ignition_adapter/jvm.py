@@ -140,11 +140,12 @@ def _counter(bean, method_name, notes):
         return None
 
 
-def read(bean=None, clock=None):
+def read(bean=None, clock=None, now=None):
     """Take one full sample and return a populated Snapshot.
 
-    `bean` and `clock` are injectable so the CPython tests exercise this exact
-    code path with the doubles in stubs.py. On a gateway both are left None.
+    `bean`, `clock` and `now` are injectable so the CPython tests exercise
+    this exact code path with the doubles in stubs.py. On a gateway all three
+    are left None.
 
     Never raises. A total failure comes back as an empty Snapshot with
     last_error set, because a gateway timer that throws stops running and
@@ -162,6 +163,11 @@ def read(bean=None, clock=None):
         snap.last_error = ("no ThreadMXBean available -- not running inside "
                            "a JVM?")
         snap.api_route = "unavailable"
+        # Stamped even on the failure path. A sample that failed still
+        # happened, and the whole point of this field is to prove the timer
+        # is alive -- a monitor that stops stamping the moment it breaks
+        # tells you nothing at exactly the moment you need it to.
+        snap.last_sample_time = _timestamp(now)
         return snap
 
     pairs = []
@@ -190,6 +196,7 @@ def read(bean=None, clock=None):
     # the target tag is an Int4. Small values coerce fine either way; this is
     # so the type at the tag boundary is not a surprise.
     snap.sample_duration_ms = int(_millis(clock) - started)
+    snap.last_sample_time = _timestamp(now)
     snap.last_error = "; ".join(notes)
     return snap
 
@@ -199,3 +206,34 @@ def _millis(clock):
         return clock()
     import time
     return int(time.time() * 1000)
+
+
+def _timestamp(now):
+    """The wall-clock instant of this sample, for Diagnostics/LastSampleTime.
+
+    THIS CLOSES A BUG THAT SHIPPED FROM DAY ONE. `Snapshot.last_sample_time`
+    was initialised to None and appended to every write batch, and nothing
+    anywhere ever assigned it -- so the one tag whose job is to prove the
+    sampler is alive wrote null, every sample, forever. Nothing noticed
+    because nothing read it.
+
+    It also quietly falsified the reason given in three places for keeping
+    Diagnostics out of history: "LastSampleTime is a timestamp so it changes
+    on EVERY sample by definition." It never changed. The conclusion is still
+    right, but it is right now rather than by accident.
+
+    java.util.Date rather than system.date.now(): this module already touches
+    java.*, the no-argument constructor IS now, and it is exactly the type an
+    Ignition DateTime tag holds, so nothing has to coerce at the boundary.
+
+    The CPython fallback keeps the field populated off-gateway, which is what
+    lets the test suite assert it is never None.
+    """
+    if now is not None:
+        return now()
+    try:
+        from java.util import Date
+        return Date()
+    except:  # noqa: E722 -- bare: see CLAUDE.md #3.
+        import datetime
+        return datetime.datetime.now()

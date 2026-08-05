@@ -408,14 +408,28 @@ def build(view, provider, drv, window):
 
     # Deterministic vertical stack. Every y is derived from the one above it,
     # so the whole layout moves together and nothing can drift out of step.
+    #
+    # ORDER IS NOW: tiles, TABLE, blocked chart, count chart.
+    #
+    # The table used to be last, starting at y=850, which on a 1280x720
+    # laptop put it entirely below the fold. It is the answer to "which pool
+    # is wrong RIGHT NOW", which is the first question anyone asks, and it
+    # was the one thing you had to scroll to reach. Now-then-history: the
+    # current state first, the trend underneath for when you need to ask when
+    # it started.
+    #
+    # The count chart goes last rather than the blocked chart because Blocked
+    # is the rarer and more urgent signal, and its panel is shorter, so it
+    # costs less of the space above the fold.
     tiles_bottom = TILE_TOP + TILE_HEIGHT
-    head1_y = tiles_bottom + 18
+    table_head_y = tiles_bottom + 18
+    table_y = table_head_y + 34
+    table_bottom = table_y + table_height()
+    head2_y = table_bottom + 20
+    blocked_y = head2_y + 38
+    head1_y = blocked_y + BLOCKED_HEIGHT + 20
     chart_y = head1_y + 38
     legend_y = chart_y + MAIN_HEIGHT + 8
-    head2_y = legend_y + 26
-    blocked_y = head2_y + 38
-    table_head_y = blocked_y + BLOCKED_HEIGHT + 20
-    table_y = table_head_y + 34
 
     chart["position"] = dict(pos, x=TILE_LEFT, y=chart_y, width=width,
                              height=MAIN_HEIGHT)
@@ -432,36 +446,48 @@ def build(view, provider, drv, window):
     kids = parent["children"]
     kids.insert(kids.index(chart) + 1, blocked)
 
-    tiles, warning = build_tiles(root, "[default]GatewayHealth/Threads/")
+    # FIND THE TEMPLATE BEFORE build_tiles() RUNS.
+    #
+    # This used to sit after the call, and build_tiles() removes every
+    # root-level label as its first act -- so the search always found nothing
+    # and always fell through to the hardcoded literal. The comment claiming
+    # it preferred "a label the Designer actually wrote in THIS view, the most
+    # authoritative shape available for this gateway version" described
+    # behaviour that had never once executed.
+    label_template = find_label_template(root)
 
-    # Headers and legend, from the same label template the tiles used.
-    label_template = None
-    for child in root.get("children") or []:
-        if child.get("type") == LABEL:
-            label_template = child
-            break
-    if label_template is None:
-        label_template = copy.deepcopy(LABEL_TEMPLATE)
+    tiles, warning = build_tiles(root, "[default]GatewayHealth/Threads/",
+                                 label_template)
+    tiles = tiles + build_status_card(root, label_template, drv,
+                                      "[default]GatewayHealth/Threads/")
 
     chrome = []
-    chrome.extend(panel_header(
-        label_template, "pools", "Pool counts",
-        "Stepped, min/max aggregated. Six series, not twelve.",
-        TILE_LEFT, layout["head1_y"], layout["width"]))
-    chrome.extend(build_legend(label_template, TILE_LEFT, layout["legend_y"],
-                               layout["width"]))
-    chrome.extend(panel_header(
-        label_template, "blocked", "Blocked — all pools",
-        "Its own panel and its own scale. Flat zero is healthy.",
-        TILE_LEFT, layout["head2_y"], layout["width"]))
 
-    # Table below the charts, sized to the pool list.
+    # Table first, directly under the tiles.
     rows = build_table(root, TILE_LEFT, layout["table_y"], layout["width"])
     if rows:
         chrome.extend(panel_header(
             label_template, "table", "Current state by pool",
-            "The right-now answer, so the chart is only for history.",
+            "All %d pools, live. The charts below are for when it started."
+            % (rows,),
             TILE_LEFT, layout["table_head_y"], layout["width"]))
+
+    chrome.extend(panel_header(
+        label_template, "blocked", "Blocked, all pools",
+        "Its own panel and its own scale. Flat zero is healthy.",
+        TILE_LEFT, layout["head2_y"], layout["width"]))
+
+    # Honest about the count: the chart plots 6 of the 14 pools in the table
+    # above it. Saying so beats letting someone conclude the other 8 do not
+    # exist. The old subtitle said "Six series, not twelve", which was both
+    # vague and, since the taxonomy grew to 14, wrong.
+    chrome.extend(panel_header(
+        label_template, "pools", "Pool counts over time",
+        "The %d busiest pools of %d. Stepped, min/max aggregated."
+        % (len(SERIES), len(taxonomy.spec_keys())),
+        TILE_LEFT, layout["head1_y"], layout["width"]))
+    chrome.extend(build_legend(label_template, TILE_LEFT, layout["legend_y"],
+                               layout["width"]))
 
     root["children"] = chrome + list(root["children"])
     return len(count_pens) + len(blocked_pens), tiles, warning, rows
@@ -592,7 +618,95 @@ def static_label(template, name, text, x, y, width, height, style):
     return node
 
 
-def build_tiles(root, provider_root):
+def table_height():
+    """Pixel height of the state table. One place, so the stack cannot drift."""
+    return (TABLE_HEADER_HEIGHT
+            + TABLE_ROW_HEIGHT * len(taxonomy.spec_keys()) + 2)
+
+
+def find_label_template(root):
+    """A label the Designer wrote, if this view has one.
+
+    Must be called BEFORE build_tiles(), which deletes every root-level label.
+    """
+    for child in root.get("children") or []:
+        if child.get("type") == LABEL:
+            return child
+    return copy.deepcopy(LABEL_TEMPLATE)
+
+
+# The status card, in the 414px of dead space to the right of the tile row.
+#
+# It answers the two questions the dashboard could not answer at all:
+#
+#   WHICH GATEWAY am I looking at? Both gateways render a pixel-identical
+#   page and write byte-identical tag paths into one shared historian. A
+#   wrong-gateway misread already happened once in this project's history,
+#   when 8.3's chart silently plotted 8.1's threads.
+#
+#   IS THIS DATA FRESH? If the timer dies, every tile keeps showing its last
+#   value and both charts hold a flat line -- which is also exactly what a
+#   calm gateway looks like. Without a timestamp on screen, a dead monitor
+#   and a healthy one are indistinguishable.
+#
+# The gateway name is written statically at build time from --drv, because
+# that is the same string the chart pens use to select their history, so the
+# label cannot disagree with the data being plotted.
+#
+# The age is NOT computed on the gateway. A sampler that writes its own
+# "seconds since last sample" freezes that number at 10 when it dies, and the
+# screen then reports healthy forever. The raw timestamp is shown and the
+# reader subtracts.
+STATUS_CAPTION_STYLE = {
+    "fontSize": "10px", "letterSpacing": "0.09em", "fontWeight": 600,
+    "color": "#7D8796", "textTransform": "uppercase",
+}
+STATUS_VALUE_STYLE = {"fontSize": "13px", "fontWeight": 600,
+                      "color": "#D3D9E2"}
+STATUS_COLS = [
+    ("GATEWAY", None),
+    ("LAST SAMPLE", "Diagnostics/LastSampleTime"),
+    ("SAMPLE MS", "Diagnostics/SampleDurationMs"),
+]
+
+
+def build_status_card(root, template, drv, provider_root):
+    """Gateway identity and data freshness, beside the tiles."""
+    x = TILE_LEFT + len(TILES) * (TILE_WIDTH + TILE_GAP)
+    width = CONTENT_WIDTH + TILE_LEFT - x
+    if width < 200:
+        return 0
+
+    card = copy.deepcopy(CONTAINER_TEMPLATE)
+    card["meta"] = {"name": "cap_tile_STATUS"}
+    card["position"] = {"x": x, "y": TILE_TOP,
+                        "width": width, "height": TILE_HEIGHT}
+    card["props"] = {"style": dict(CARD_STYLE)}
+
+    kids = []
+    col_w = (width - 24) // len(STATUS_COLS)
+    cx = 12
+    for caption, tag in STATUS_COLS:
+        kids.append(static_label(template, "cap_" + caption, caption,
+                                 cx, 10, col_w - 8, CAPTION_HEIGHT,
+                                 STATUS_CAPTION_STYLE))
+        if tag is None:
+            kids.append(static_label(template, "val_" + caption, drv,
+                                     cx, 30, col_w - 8, 20,
+                                     STATUS_VALUE_STYLE))
+        else:
+            kids.append(tag_label(template, "val_" + caption,
+                                  provider_root + tag,
+                                  cx, 30, col_w - 8, 20,
+                                  STATUS_VALUE_STYLE))
+        cx = cx + col_w
+
+    card["children"] = kids
+    root["children"] = [card] + list(root["children"])
+    return 1
+
+
+def build_tiles(root, provider_root, template=None):
     """Replace whatever labels exist with a clean, complete tile row.
 
     Rebuilt rather than patched: the Designer leaves labels wherever they were
@@ -600,19 +714,15 @@ def build_tiles(root, provider_root):
     uniform. Any label already in the view is used as the clone template so
     the node shape stays the Designer's, not mine.
     """
-    labels = []
-    for child in root.get("children") or []:
-        if child.get("type") == LABEL:
-            labels.append(child)
-    if labels:
-        # Prefer a label the Designer actually wrote in THIS view -- it is
-        # the most authoritative shape available for this gateway version.
-        template = labels[0]
-    else:
+    # `template` comes in from find_label_template(), which the caller runs
+    # BEFORE this function. It has to: the loop below deletes every
+    # root-level label, so anything searching for one afterwards finds none.
+    if template is None:
         template = copy.deepcopy(LABEL_TEMPLATE)
 
-    for stale in labels:
-        root["children"].remove(stale)
+    for stale in list(root.get("children") or []):
+        if stale.get("type") == LABEL:
+            root["children"].remove(stale)
 
     made = []
     x = TILE_LEFT

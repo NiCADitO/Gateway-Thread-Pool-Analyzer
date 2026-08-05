@@ -213,6 +213,21 @@ def check_container(container):
             % (container, detail.splitlines()[0]))
 
 
+# The 8.1 / 8.3 discriminator. 8.3 keeps configuration in a resource store at
+# data/config/resources/core/ that simply does not exist on 8.1; install_theme
+# .py already uses exactly this test and it has been correct on both lab
+# gateways all session. Cheaper and more direct than parsing a version string.
+CONFIG_STORE_83 = "/usr/local/bin/ignition/data/config/resources/core"
+
+
+def is_83(container):
+    result = subprocess.run(
+        ["docker", "exec", container, "sh", "-c",
+         "test -d '%s' && echo yes" % (CONFIG_STORE_83,)],
+        capture_output=True, text=True, errors="replace")
+    return "yes" in result.stdout
+
+
 def check_project(container, project):
     """Fail early and clearly if the project does not exist.
 
@@ -438,6 +453,17 @@ def main():
             push_timer(args.container, args.project, args.delay)
         if args.restart:
             restart_and_wait(args.container)
+        elif is_83(args.container):
+            # 8.3 does not watch its project directory AT ALL, so waiting for
+            # a rescan waits for something that will never happen. Observed:
+            # a full 240s timeout, then "no ingestion seen", on a push that
+            # was perfectly fine and simply needed a restart.
+            #
+            # Say so immediately instead of burning four minutes to arrive at
+            # a misleading non-answer.
+            print("8.3 does not watch the project directory, so nothing will "
+                  "rescan.\n  The files are on disk. Re-run with --restart, "
+                  "or restart the container, to load them.")
         else:
             wait_for_ingest(args.container, before)
     return 0

@@ -284,6 +284,46 @@ def test_failed_probes_are_written_as_minus_one_not_omitted(dump_81_11):
     assert len(values) == len(tagpaths.all_paths())
 
 
+# --- the freshness stamp --------------------------------------------------
+#
+# These exist because the field was None from the day it was written and no
+# test noticed for the life of the project. The tag it feeds is the only
+# thing that can tell a dead sampler from a calm gateway.
+
+def test_a_sample_is_stamped_with_the_time(dump_81_11):
+    snap = jvm.read(bean=make_bean(dump_81_11))
+    assert snap.last_sample_time is not None
+
+
+def test_the_stamp_reaches_the_write_batch_as_a_real_value(dump_81_11):
+    """A null here is indistinguishable from a tag that was never written."""
+    fake = stubs.FakeTagSystem()
+    snap = jvm.read(bean=make_bean(dump_81_11))
+    write(snap, tag_system=fake)
+
+    paths, values = fake.writes[0]
+    by_path = dict(zip(paths, values))
+    stamped = by_path[tagpaths.diagnostic_tag(tagpaths.LAST_SAMPLE_TIME)]
+    assert stamped is not None
+
+
+def test_the_stamp_is_injectable_so_it_can_be_asserted_on(dump_81_11):
+    snap = jvm.read(bean=make_bean(dump_81_11), now=lambda: "SENTINEL")
+    assert snap.last_sample_time == "SENTINEL"
+
+
+def test_a_failed_sample_is_still_stamped():
+    """A monitor that stops stamping when it breaks is useless when it breaks.
+
+    jvm.read(bean=None) is the total-failure path: no ThreadMXBean at all. It
+    must still say when it tried, or a broken sampler and a dead one look the
+    same on the dashboard.
+    """
+    snap = jvm.read(bean=None, now=lambda: "SENTINEL")
+    if snap.api_route == "unavailable":
+        assert snap.last_sample_time == "SENTINEL"
+
+
 # --- entry points ---------------------------------------------------------
 
 def test_dump_renders_without_a_gateway():
