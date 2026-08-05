@@ -539,15 +539,18 @@ CAPTION_STYLE = {
     "color": "#7D8796", "textTransform": "uppercase",
 }
 VALUE_STYLE = {"fontSize": "26px", "fontWeight": 650, "color": "#E6EBF2"}
-ALARM_VALUE_STYLE = {"fontSize": "26px", "fontWeight": 650,
-                     "color": "#D9534F"}
-SUB_STYLE = {"fontSize": "10px", "color": "#6C7583"}
+SUB_STYLE = {"fontSize": "10px", "color": "#9AA3B1"}
+
+# Its own constant so the contrast audit can see it. As an inline literal
+# inside build_table() it was invisible to the audit, which kept its own
+# hardcoded copy and therefore reported a colour the code no longer used.
+TABLE_EMPTY_STYLE = {"fontSize": "11px", "color": "#9AA3B1"}
 
 PANEL_TITLE_STYLE = {
     "fontSize": "11px", "letterSpacing": "0.07em", "fontWeight": 600,
     "color": "#8B94A3", "textTransform": "uppercase",
 }
-PANEL_SUB_STYLE = {"fontSize": "10px", "color": "#626B78"}
+PANEL_SUB_STYLE = {"fontSize": "10px", "color": "#8B94A3"}
 
 LEGEND_STYLE = {"fontSize": "10px", "color": "#98A1AF"}
 LEGEND_ITEM_WIDTH = 108
@@ -631,9 +634,24 @@ def build_tiles(root, provider_root):
         kids = [static_label(template, "capText", caption, 12, 10,
                              TILE_WIDTH - 24, CAPTION_HEIGHT, CAPTION_STYLE)]
 
+        # DELIBERATELY NOT red-when-alarm. The alarm tiles used to render
+        # their value in ALARM_VALUE_STYLE unconditionally, so BLOCKED and
+        # DEADLOCKED sat in alert red at value 0, forever, on a healthy
+        # gateway. The comment above this block already argued against
+        # exactly that -- "a tile that is ALWAYS red is a tile people stop
+        # seeing" -- and then the code did it anyway.
+        #
+        # Two costs, not one. Red that is always on carries zero bits, so a
+        # genuine BlockedTotal of 6 looked identical to yesterday's 0. And
+        # #D9534F on the warm card measured 4.35:1, under the 4.5:1 WCAG AA
+        # floor, so the alarm colour was also the least readable text on the
+        # screen.
+        #
+        # The card keeps its warmer border, which is a permanent hint that
+        # this tile is the one to watch. The NUMBER stays neutral until
+        # something can actually make it change -- which needs an expression
+        # binding, a shape this project has not verified.
         value_style = dict(VALUE_STYLE)
-        if is_alarm:
-            value_style = dict(ALARM_VALUE_STYLE)
         kids.append(tag_label(template, "valText", provider_root + tag,
                               12, 26, TILE_WIDTH - 24, VALUE_HEIGHT,
                               value_style))
@@ -807,7 +825,7 @@ def build_table(root, x, y, width):
     empty = dict(props.get("emptyMessage") or {})
     no_data = dict(empty.get("noData") or {})
     no_data["text"] = TABLE_EMPTY_TEXT
-    no_data["textStyle"] = {"color": "#6C7583", "fontSize": "11px"}
+    no_data["textStyle"] = dict(TABLE_EMPTY_STYLE)
     empty["noData"] = no_data
     props["emptyMessage"] = empty
 
