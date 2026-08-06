@@ -1,4 +1,4 @@
-"""Create the 81 tags this project writes to.
+"""Create the 82 tags this project writes to.
 
 Every API detail used here was read out of the gateways' OWN JARS by Jython
 reflection inside the containers, not from documentation -- see stubs.py. That
@@ -37,14 +37,14 @@ THREE DESIGN DECISIONS, and why.
    generously.
 
    a) The QualityCodes from `configure`, one per tag, inspected individually.
-   b) `audit()`, which asks `system.tag.exists(path)` for all 81 paths.
+   b) `audit()`, which asks `system.tag.exists(path)` for all 82 paths.
       Verified by reflection on both gateways. This is a SECOND OPINION: (a)
       says what configure believed it did, (b) says what the provider
       actually holds. It fails closed -- if the audit cannot run, ok() is
       False, because "could not check" must never read as "checked and fine".
    c) The timer's own next sample, which was already working before any of
-      this existed: it logs `81 of 81 writes rejected` before provisioning
-      and `81 tags written` after.
+      this existed: it logs `82 of 82 writes rejected` before provisioning
+      and `82 tags written` after.
 
    History is proven more directly still, by rows appearing in the historian
    database. Nothing here is asserted on faith.

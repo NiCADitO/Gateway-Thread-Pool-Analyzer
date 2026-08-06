@@ -665,7 +665,10 @@ STATUS_VALUE_STYLE = {"fontSize": "13px", "fontWeight": 600,
                       "color": "#D3D9E2"}
 STATUS_COLS = [
     ("GATEWAY", None),
-    ("LAST SAMPLE", "Diagnostics/LastSampleTime"),
+    # The preformatted sibling, not the DateTime. Binding the DateTime
+    # straight into props.text renders `"2026-08-05T04:36:49.669Z"`,
+    # quote marks included -- verified in the live DOM.
+    ("LAST SAMPLE", "Diagnostics/LastSampleText"),
     ("SAMPLE MS", "Diagnostics/SampleDurationMs"),
 ]
 

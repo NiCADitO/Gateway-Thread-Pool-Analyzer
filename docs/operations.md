@@ -67,7 +67,7 @@ tags with a provider that does not exist — and they would look historized.
 ... --provision --history-provider NONE
 ```
 
-Creates all 81 tags with live values and no history. The log says
+Creates all 82 tags with live values and no history. The log says
 `(NO HISTORY -- live values only)` so it cannot be mistaken for a gateway that
 is trending. A *blank* provider is still refused — blank is what an unset
 config looks like, and treating it as "no history wanted" is how you get 75
@@ -88,13 +88,13 @@ docker logs <container> 2>&1 | grep GatewayThreadMonitor
 Healthy looks like this, once every 5 minutes:
 
 ```
-I [GatewayThreadMonitor]: sample 30: 81 tags written (105 threads, 4ms)
+I [GatewayThreadMonitor]: sample 30: 82 tags written (105 threads, 4ms)
 ```
 
 Not-yet-provisioned looks like this:
 
 ```
-W [GatewayThreadMonitor]: 81 of 81 writes rejected, first:
+W [GatewayThreadMonitor]: 82 of 82 writes rejected, first:
   [default]GatewayHealth/Threads/Pools/webserver/Count (Bad_NotFound)
 ```
 
@@ -123,7 +123,7 @@ healthy while the historian stores nothing.
 docker exec postgresct psql -U ignition -d test -c "SELECT te.tagpath, count(*) AS rows, min(d.intvalue) AS lo, max(d.intvalue) AS hi, to_timestamp(max(d.t_stamp)/1000) AS last FROM sqlth_1_data d JOIN sqlth_te te ON d.tagid=te.id WHERE te.tagpath ILIKE 'gatewayhealth%' GROUP BY 1 ORDER BY 2 DESC LIMIT 15;"
 ```
 
-Expect **75** distinct series — not 81. The five `Diagnostics` tags and the
+Expect **75** distinct series — not 82. The six `Diagnostics` tags and the
 `PoolTable` DataSet are
 deliberately not historized: `LastSampleTime` is a timestamp so it changes
 every single sample by definition, and historizing it plus `SampleDurationMs`
@@ -332,7 +332,7 @@ in the browser's own React tree, and a `ReactVirtualized__Grid` of height 0.
 Observed identically on 2.1.11 and 3.3.8. Fourteen rows do not need virtualizing.
 
 If the table is empty, check in this order: the tag exists and has a value →
-the timer log says `81 tags written` not `80` → `props.virtualized` is `false`
+the timer log says `82 tags written` not `80` → `props.virtualized` is `false`
 in the deployed `view.json`.
 
 ### Reading it

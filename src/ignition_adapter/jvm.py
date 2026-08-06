@@ -168,6 +168,7 @@ def read(bean=None, clock=None, now=None):
         # is alive -- a monitor that stops stamping the moment it breaks
         # tells you nothing at exactly the moment you need it to.
         snap.last_sample_time = _timestamp(now)
+        snap.last_sample_text = _timestamp_text(snap.last_sample_time)
         return snap
 
     pairs = []
@@ -197,6 +198,7 @@ def read(bean=None, clock=None, now=None):
     # so the type at the tag boundary is not a surprise.
     snap.sample_duration_ms = int(_millis(clock) - started)
     snap.last_sample_time = _timestamp(now)
+    snap.last_sample_text = _timestamp_text(snap.last_sample_time)
     snap.last_error = "; ".join(notes)
     return snap
 
@@ -237,3 +239,36 @@ def _timestamp(now):
     except:  # noqa: E722 -- bare: see CLAUDE.md #3.
         import datetime
         return datetime.datetime.now()
+
+
+# "Aug 05 14:36:49". Deliberately not the full ISO string and deliberately
+# not time-only.
+#
+# Time-only would be a trap: at a glance 04:36:49 looks fresh whether it is
+# forty seconds old or a day old, and "is this stale" is the entire reason
+# this is on screen. The date has to be there. The year does not -- it costs
+# five characters in a 130px column and settles nothing.
+#
+# Rendered in the gateway's own timezone, which is what its log lines use, so
+# comparing the dashboard against `docker logs` needs no mental arithmetic.
+SAMPLE_TIME_FORMAT = "MMM dd HH:mm:ss"
+
+
+def _timestamp_text(stamp):
+    """`stamp` formatted for a human, or "" if it cannot be.
+
+    Never raises: a formatting failure must not cost the whole sample. An
+    empty string is honest here -- the tag beside it still carries the real
+    DateTime, so nothing is lost but the convenience.
+    """
+    if stamp is None:
+        return ""
+    try:
+        from java.text import SimpleDateFormat
+        return "%s" % (SimpleDateFormat(SAMPLE_TIME_FORMAT).format(stamp),)
+    except:  # noqa: E722 -- bare: see CLAUDE.md #3.
+        pass
+    try:
+        return stamp.strftime("%b %d %H:%M:%S")
+    except:  # noqa: E722 -- bare: see CLAUDE.md #3.
+        return "%s" % (stamp,)

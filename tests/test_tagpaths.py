@@ -199,3 +199,28 @@ def test_blocked_total_is_historized():
     """It is the tag you would alarm on, so it needs history behind it."""
     assert tagpaths.gateway_tag(tagpaths.BLOCKED_TOTAL) in \
         tagpaths.historized_paths()
+
+
+# --- the human-readable sample time ---------------------------------------
+
+def test_the_sample_time_has_both_a_datetime_and_a_text_form():
+    """Both, on purpose. See tagpaths.LAST_SAMPLE_TEXT.
+
+    The DateTime is the correct type to keep and to compare against later.
+    The text is what a label can actually display: binding the DateTime into
+    props.text renders `"2026-08-05T04:36:49.669Z"`, quote marks and all.
+    """
+    assert tagpaths.datatype_for(
+        tagpaths.diagnostic_tag(tagpaths.LAST_SAMPLE_TIME)) == \
+        tagpaths.DATATYPE_DATETIME
+    assert tagpaths.datatype_for(
+        tagpaths.diagnostic_tag(tagpaths.LAST_SAMPLE_TEXT)) == \
+        tagpaths.DATATYPE_STRING
+
+
+def test_neither_sample_time_tag_is_historized():
+    """A timestamp changes every sample by definition. Historizing it would
+    store more rows per day than every real metric combined."""
+    historized = tagpaths.historized_paths()
+    for name in (tagpaths.LAST_SAMPLE_TIME, tagpaths.LAST_SAMPLE_TEXT):
+        assert tagpaths.diagnostic_tag(name) not in historized

@@ -119,12 +119,28 @@ DATASET_TAGS = [POOL_TABLE]
 
 SAMPLE_DURATION_MS = "SampleDurationMs"
 LAST_SAMPLE_TIME = "LastSampleTime"
+
+# The same instant as LAST_SAMPLE_TIME, preformatted for a human.
+#
+# Both exist on purpose. LastSampleTime stays a real DateTime because that is
+# the correct type for the value and the only useful one to compare or alarm
+# against later. But a DateTime bound straight into a label's `props.text`
+# renders as `"2026-08-05T04:36:49.669Z"` -- verified in the live DOM, quote
+# marks and all -- which is a machine's idea of a timestamp.
+#
+# Formatting it in a binding instead would need an expression binding, and
+# the JSON shape of one has never been observed in this project. Two shapes
+# here have already written a perfect file and rendered nothing, so the
+# string is built where it can be unit-tested rather than in a binding that
+# can only be checked by looking at it.
+LAST_SAMPLE_TEXT = "LastSampleText"
+
 LAST_ERROR = "LastError"
 API_ROUTE = "ApiRoute"
 UNMATCHED_NAMES = "UnmatchedNames"
 
-DIAGNOSTIC_TAGS = [SAMPLE_DURATION_MS, LAST_SAMPLE_TIME, LAST_ERROR,
-                   API_ROUTE, UNMATCHED_NAMES]
+DIAGNOSTIC_TAGS = [SAMPLE_DURATION_MS, LAST_SAMPLE_TIME, LAST_SAMPLE_TEXT,
+                   LAST_ERROR, API_ROUTE, UNMATCHED_NAMES]
 
 
 def scalar_paths():
@@ -184,6 +200,7 @@ DATATYPE_DATASET = "DataSet"
 DIAGNOSTIC_TYPES = {
     SAMPLE_DURATION_MS: DATATYPE_INT,
     LAST_SAMPLE_TIME: DATATYPE_DATETIME,
+    LAST_SAMPLE_TEXT: DATATYPE_STRING,
     LAST_ERROR: DATATYPE_STRING,
     API_ROUTE: DATATYPE_STRING,
     UNMATCHED_NAMES: DATATYPE_STRING,
@@ -204,7 +221,7 @@ def datatype_for(path):
 def historized_paths():
     """The paths that get tag history enabled. Deliberately NOT all of them.
 
-    The 70 pool members plus the 5 gateway counters -- 75 of the 81 -- and
+    The 70 pool members plus the 5 gateway counters -- 75 of the 82 -- and
     neither the 5 Diagnostics tags nor the PoolTable DataSet.
 
     Excluding Diagnostics is not tidiness, it is the difference between

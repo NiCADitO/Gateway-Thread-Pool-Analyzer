@@ -137,10 +137,10 @@ docker logs 81-GW1-1 2>&1 | grep GatewayThreadMonitor
 A healthy gateway logs one line every five minutes:
 
 ```
-I [GatewayThreadMonitor]: sample 30: 81 tags written (115 threads, 4ms)
+I [GatewayThreadMonitor]: sample 30: 82 tags written (115 threads, 4ms)
 ```
 
-If it says `81 of 81 writes rejected`, the tags do not exist yet, so the
+If it says `82 of 82 writes rejected`, the tags do not exist yet, so the
 deploy ran without `--provision`.
 
 [docs/operations.md](docs/operations.md) covers the Perspective dashboard,
@@ -220,7 +220,7 @@ up on 8.3 only once a Designer connects, so its prefix stops before the role.
                ApiRoute, UnmatchedNames}
 ```
 
-That is 81 flat memory tags, created by `system.tag.configure`. 75 of them are
+That is 82 flat memory tags, created by `system.tag.configure`. 75 of them are
 historized. The 5 `Diagnostics` tags and the `PoolTable` dataset are
 deliberately not: `LastSampleTime` changes on every single sample by
 definition, so historizing it would add more rows per day than all the real

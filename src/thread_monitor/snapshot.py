@@ -67,6 +67,9 @@ class Snapshot(object):
         self.api_route = ""
         self.last_error = ""
         self.last_sample_time = None
+        # The same instant as last_sample_time, formatted for a human. See
+        # tagpaths.LAST_SAMPLE_TEXT for why both exist.
+        self.last_sample_text = ""
 
     def pool(self, key):
         for entry in self.pools:
@@ -133,6 +136,8 @@ def flatten_for_write(snap):
     values.append(_int_or_default(snap.sample_duration_ms, -1))
     paths.append(tagpaths.diagnostic_tag(tagpaths.LAST_SAMPLE_TIME))
     values.append(snap.last_sample_time)
+    paths.append(tagpaths.diagnostic_tag(tagpaths.LAST_SAMPLE_TEXT))
+    values.append(snap.last_sample_text)
     paths.append(tagpaths.diagnostic_tag(tagpaths.LAST_ERROR))
     values.append(snap.last_error)
     paths.append(tagpaths.diagnostic_tag(tagpaths.API_ROUTE))
